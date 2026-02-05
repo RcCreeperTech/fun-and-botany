@@ -1,0 +1,19 @@
+{
+  "name": "web-testing",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "vite": "^7.3.1",
+    "vite-plugin-solid": "^2.11.10"
+  },
+  "peerDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build:engine": "odin build engine -target=js_wasm64p32 -build-mode:lib -debug -out:public/engine.wasm"
+  },
+  "dependencies": {
+    "solid": "^0.2.1"
+  }
+}
