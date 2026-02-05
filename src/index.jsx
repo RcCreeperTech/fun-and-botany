@@ -4,9 +4,13 @@ import App from "./App";
 
 const root = document.getElementById("root");
 render(
-  () =>
-    <SimulationProvider>
-      <App />,
-    </SimulationProvider>,
+  () => (
+    <>
+      <SimulationProvider>
+        <App />
+      </SimulationProvider>
+    </>
+  ),
+
   root
 );
