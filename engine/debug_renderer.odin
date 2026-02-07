@@ -15,17 +15,11 @@ import la "core:math/linalg"
 import "core:fmt"
 
 Vec2 :: [2]f32
-Color :: [4]f32
-
-WHITE :: Color{1, 1, 1, 1}
-YELLOW :: Color{1, 1, 0, 1}
-RED :: Color{1, 0, 0, 1}
-BLUE :: Color{0, 0, 1, 1}
 
 Vertex2D :: struct {
 	pos:   Vec2,
 	uv:    Vec2,
-	color: Color,
+	color: FColor,
 }
 
 Soft_Primitive_Type :: enum u32 {
@@ -122,7 +116,7 @@ DebugRenderer_Mode :: enum {
 
 MAX_BATCH_VERTICES :: 16384
 MAX_BATCH_INDICES :: MAX_BATCH_VERTICES * 2
-MAX_BATCH_INSTANCES :: 2048
+MAX_BATCH_INSTANCES :: 4096
 DebugRenderer_Context :: struct {
 	mode:                           DebugRenderer_Mode,
 	white_tex:                      wgl.Texture , // A 1x1 white pixel texture
@@ -404,6 +398,14 @@ rc_flush :: proc(using ctx: ^DebugRenderer_Context) {
 
 }
 
+rc_ensure_space :: proc(using ctx: ^DebugRenderer_Context, vertices, indices: int) {
+	vertex_overflow := sm.len(basic_vertices) + vertices >= MAX_BATCH_VERTICES
+	index_overflow := sm.len(basic_indices) + indices >= MAX_BATCH_INDICES
+	if vertex_overflow || index_overflow {
+			rc_flush(ctx)
+		}
+}
+
 rc_append_vertex :: proc(using ctx: ^DebugRenderer_Context, vert: Vertex2D) -> u16 {
 	assert(
 		mode == .basic,
@@ -411,9 +413,7 @@ rc_append_vertex :: proc(using ctx: ^DebugRenderer_Context, vert: Vertex2D) -> u
 	)
 	idx := basic_vertices.len
 	if !sm.append(&basic_vertices, vert) {
-		rc_flush(ctx)
-		idx = 0
-		sm.append(&basic_vertices, vert)
+		fmt.eprintfln("Failed to append to vertex buffer!")
 	}
 	return u16(idx)
 }
@@ -424,8 +424,7 @@ rc_append_index :: proc(using ctx: ^DebugRenderer_Context, idx: u16) {
 		"Drawing basic primitive shapes requires the renderer to be in basic mode",
 	)
 	if !sm.append(&basic_indices, idx) {
-		rc_flush(ctx)
-		sm.append(&basic_indices, idx)
+		fmt.eprintfln("Failed to append to index buffer!")
 	}
 }
 
@@ -449,11 +448,13 @@ rc_draw_line :: proc(
 	thickness: f32 = 10.0,
 	color := WHITE,
 ) {
+	rc_ensure_space(ctx, 4, 6)
 	// Calculate perpendicular vector for thickness
 	dir := end - start
 	perp := la.normalize0(la.orthogonal(dir)) * thickness * 0.5
 
 	// 4 corners of the line segment
+	color := to_fcolor(color)
 	p1 := rc_append(ctx, Vertex2D{pos = start - perp, uv = {0, 0}, color = color})
 	p2 := rc_append(ctx, Vertex2D{pos = start + perp, uv = {1, 0}, color = color})
 	p3 := rc_append(ctx, Vertex2D{pos = end - perp, uv = {0, 1}, color = color})
@@ -469,6 +470,8 @@ rc_draw_line :: proc(
 }
 
 rc_draw_rect :: proc(using ctx: ^DebugRenderer_Context, pos, size: Vec2, color := WHITE) {
+	rc_ensure_space(ctx, 4, 6)
+	color := to_fcolor(color)
 	p1 := rc_append(ctx, Vertex2D{pos = pos, uv = {0, 0}, color = color})
 	p2 := rc_append(ctx, Vertex2D{pos = {pos.x + size.x, pos.y}, uv = {1, 0}, color = color})
 	p3 := rc_append(ctx, Vertex2D{pos = pos + size, uv = {1, 1}, color = color})
@@ -506,6 +509,8 @@ rc_draw_circle :: proc(
 	segments: int = 32,
 	color := WHITE,
 ) {
+	rc_ensure_space(ctx, segments + 1, segments * 3)
+	color := to_fcolor(color)
 	center_idx := rc_append(ctx, Vertex2D{pos = center, uv = {0.5, 0.5}, color = color})
 
 	first_outer_idx: u16
@@ -533,6 +538,7 @@ rc_draw_soft_circle :: proc(
 	radius: f32,
 	color := WHITE,
 ) {
+	color := to_fcolor(color)
 	inst := SoftShape_InstanceData {
 		color  = color,
 		tag    = f32(Soft_Primitive_Type.Circle),
@@ -548,6 +554,7 @@ rc_draw_soft_capsule :: proc(
 	radius: f32,
 	color := WHITE,
 ) {
+	color := to_fcolor(color)
 	inst := SoftShape_InstanceData {
 		color   = color,
 		tag     = f32(Soft_Primitive_Type.Capsule),
@@ -563,6 +570,7 @@ rc_draw_soft_rhombus :: proc(
 	r_start, r_end: f32,
 	color := WHITE,
 ) {
+	color := to_fcolor(color)
 	inst := SoftShape_InstanceData {
 		color   = color,
 		tag     = f32(Soft_Primitive_Type.Rhombus),
