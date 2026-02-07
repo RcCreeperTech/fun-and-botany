@@ -81,8 +81,8 @@ export class WasmMemoryInterface {
   storeI16(addr, value) { this.mem.setInt16(addr, value, true); }
   storeU32(addr, value) { this.mem.setUint32(addr, value, true); }
   storeI32(addr, value) { this.mem.setInt32(addr, value, true); }
-  storeU64(addr, value) { this.mem.setBigUint64(addr, true); }
-  storeI64(addr, value) { this.mem.setBigInt64(addr, true); }
+  storeU64(addr, value) { this.mem.setBigUint64(addr, value, true); }
+  storeI64(addr, value) { this.mem.setBigInt64(addr, value, true); }
   storeF32(addr, value) { this.mem.setFloat32(addr, value, true); }
   storeF64(addr, value) { this.mem.setFloat64(addr, value, true); }
   storeInt(addr, value) {
