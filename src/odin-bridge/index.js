@@ -64,6 +64,15 @@ export default class OdinBridge {
       this.resizeObserver.observe(canvas); // TODO: Cleanup
     }
 
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        // We just came back to the tab.
+        // Reset prevTimeStamp to undefined or the current time
+        // so the next step() calculates a fresh dt of 0
+        this.prevTimeStamp = undefined;
+      }
+    });
+
     this.initialized = true;
   }
 
@@ -148,6 +157,7 @@ export default class OdinBridge {
     }
 
     const dt = (currTimeStamp - this.prevTimeStamp) * 0.001;
+    if (dt == 0) return; // No point in running before dt is stable
 
     if (!this.exports.step(dt, this.odin_ctx)) {
       this.exports._end();
