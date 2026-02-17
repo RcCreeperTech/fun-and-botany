@@ -11,7 +11,9 @@
   },
   "scripts": {
     "dev": "vite",
-    "build:engine": "odin build engine -target=js_wasm64p32 -build-mode:lib -debug -out:public/engine.wasm"
+    "build:clean": "rm public/*",
+    "build:engine": "odin build engine -target=js_wasm64p32 -build-mode:lib -debug -out:public/engine.wasm",
+    "build:engine-release": "odin build engine -target=js_wasm64p32 -build-mode:lib -o:speed -out:public/engine.wasm"
   },
   "dependencies": {
     "solid": "^0.2.1"

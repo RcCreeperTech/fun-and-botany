@@ -93,7 +93,7 @@ function getInputComponent(props) {
         return RangeInput;
       }
       return NumberInput;
-    default: return (<p>TODO: Implement the {type} component</p>);
+    default: return (<p>TODO: Implement the {props.type} component</p>);
   }
 }
 
