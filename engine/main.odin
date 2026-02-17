@@ -10,56 +10,65 @@ import la "core:math/linalg"
 import "core:math/rand"
 
 UP :: -1i
+SIM_MAX_DEPTH :: 10
 
 Handle :: hm.Handle32
-ElementMap :: hm.Static_Handle_Map(4096, Simulation_Element, Handle)
+ElementMap :: hm.Static_Handle_Map(1024, Simulation_Element, Handle)
 
 // QUESTION: Should these be mapped into some memory allocated by the platform.
 // This could enable hot reloads for the odin code. Which would be kind of sick.
 SimulationState :: struct {
-	cumulative_time: f64,
-	window_width:    i32,
-	window_height:   i32,
-	dpr:             f64,
-	rt_metaballs:    DebugRenderer_RenderTarget,
-	rc:              DebugRenderer_Context,
-	origin:          Vec2,
-	elements:        ElementMap,
-	root_element:    Handle,
+	cumulative_time:        f64,
+	window_width:           i32,
+	window_height:          i32,
+	dpr:                    f64,
+	rt_metaballs:           DebugRenderer_RenderTarget,
+	rc:                     DebugRenderer_Context,
+	origin:                 Vec2,
+	num_substeps:           int `ui:"name='Substeps',min=0,max=10"`,
+	seperation_compliance:  f32 `ui:"name='Seperation Compliance',min=0,max=1"`,
+	elements:               ElementMap,
+	root_element:           Handle,
 }
 
 Simulation_Element :: struct {
 	handle:                  Handle,
 	parent, left, right:     Handle,
 	first_child, last_child: Handle,
+	old_position:            Vec2,
 	position:                Vec2,
 	velocity:                Vec2,
 	rest_orientation:        complex64,
 	target_orientation:      complex64,
 	orientation:             complex64,
 	angular_velocity:        f32,
+	inv_mass:                f32,
 	color:                   Color,
 	radius:                  f32,
 	age:                     f32,
+	depth:                   u8,
 	debug_alive:             bool,
 }
 element_spawn_child :: proc(
 	elements: ^ElementMap,
 	e: ^Simulation_Element,
 	rotation: complex64 = 1,
+	mass: f32 = 1,
 ) {
 	child := hm.add(
 	elements,
 	Simulation_Element {
-		position           = e.position + {real(e.orientation), imag(e.orientation)} * e.radius,
+		position           = e.position + {real(e.orientation), imag(e.orientation)} * e.radius * 0.5,
 		rest_orientation   = rotation,
 		target_orientation = e.orientation * rotation,
 		orientation        = e.orientation * rotation,
-		radius             = e.radius * 0.2,
+		radius             = 0,
+		depth              = e.depth + 1,
 		color              = e.color,
 		debug_alive        = true,
 		parent             = e.handle, // point to the parent
 		right              = e.first_child, // link into the head of the sibling dll
+		inv_mass           = 1 / mass if mass != 0 else 0,
 	},
 	)
 
@@ -88,6 +97,9 @@ main :: proc() {
 	fmt.printfln("Created graphics context: WebGL %d.%d ES %d.%d", major, minor, esmajor, esminor)
 	rc_initialize(&rc)
 
+	g_sim.seperation_compliance = 0.0001
+	g_sim.num_substeps = 8
+
 	g_sim.root_element = hm.add(
 		&g_sim.elements,
 		Simulation_Element {
@@ -112,39 +124,91 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 	center := window_center()
 	g_sim.origin = center // + {0, center.y * 0.95}
 
-	{ 	// Tick the elements
-		// Debug code
+	debug_plant_test_code: {
 		it := hm.iterator_make(&g_sim.elements)
 		for element, h in hm.iterate(&it) {
 			element.age += f32(delta_time)
-			left_rotation := cx.rect_complex64(1, -math.τ / 11)
-			right_rotation := cx.rect_complex64(1, math.τ / 11)
+			left_rotation := cx.rect_complex64(1, -math.τ / 9)
+			right_rotation := cx.rect_complex64(1, math.τ / 9)
 			growth := 0.6 / max(element.age, 1)
+			// growth := max(math.exp(-element.age), 0.01)
 			element.radius += 0.2 * growth
 
-			if element.debug_alive && growth <= 0.3 {
+			if element.debug_alive && growth <= 0.3 && element.depth < SIM_MAX_DEPTH {
 				element.debug_alive = false
-				// element_spawn_child(&g_sim.elements, element, rotation = right_rotation)
-				if rand.float32() < 0.88 do element_spawn_child(&g_sim.elements, element, rotation = right_rotation)
-				if rand.float32() < 0.33 do element_spawn_child(&g_sim.elements, element, rotation = left_rotation)
+				if rand.float32() < 0.33 {
+					element_spawn_child(&g_sim.elements, element)
+				} else {
+					if rand.float32() < 0.88 do element_spawn_child(&g_sim.elements, element, rotation = right_rotation)
+					if rand.float32() < 0.77 do element_spawn_child(&g_sim.elements, element, rotation = left_rotation)
+				}
 			}
 		}
 	}
 
-	{ 	// Physics Step Bodies
-		it := hm.iterator_make(&g_sim.elements)
+	dt: f32 = f32(delta_time) / f32(g_sim.num_substeps)
+	for _ in 0 ..< g_sim.num_substeps {
+		sim_integrate_bodies(&g_sim.elements, dt)
+		sim_solve_joint_constraints(&g_sim.elements, g_sim.root_element, dt)
+		sim_update_body_velocities(&g_sim.elements, dt)
+		sim_seperate_bodies_relaxed(&g_sim, dt)
+	}
+
+	sim_integrate_bodies :: proc(elements: ^ElementMap, dt: f32) {
+		it := hm.iterator_make(elements)
 		for e, h in hm.iterate(&it) {
-			e.position += e.velocity * f32(delta_time)
-			// This sim is only first order so velocity is actually just an
-			// accumulator for kinematic impulse
-			e.velocity = 0
+			// TODO: impulse would apply here e.g. Gravity
+			e.old_position = e.position
+			e.position += e.velocity * dt
 		}
 	}
 
-	{ 	// Seperate Physics Bodies
-		it := hm.iterator_make(&g_sim.elements)
+	sim_update_body_velocities :: proc(elements: ^ElementMap, dt: f32) {
+		it := hm.iterator_make(elements)
+		for e, h in hm.iterate(&it) {
+			e.velocity = (e.position - e.old_position) / dt
+			e.velocity *= 0.9
+		}
+	}
+
+	sim_solve_joint_constraints :: proc(
+		elements: ^ElementMap,
+		h: Handle,
+		dt: f32,
+		prev: ^Simulation_Element = nil,
+	) {
+		if elem, ok := hm.get(elements, h); ok {
+			if prev != nil {
+				// Compute the target position for the element based on the orientation and distance constraints
+				z_target_dir := prev.orientation * elem.rest_orientation
+				target_dir := Vec2{real(z_target_dir), imag(z_target_dir)}
+				ideal_dist := (elem.radius + prev.radius)
+				target_pos := prev.position + (target_dir * ideal_dist)
+
+				age := max(1, (elem.age + prev.age) / 2)
+				stiffness := clamp(age, 300, 800)
+				compliance := 1 / stiffness // TODO: Do this better here
+
+				// NOTE: Masses cancel because the parent is unaffected by this constraint
+				error := la.distance(target_pos, elem.position)
+				alpha := compliance / (dt * dt)
+				lambda := error / alpha
+				dir := la.normalize0(elem.position - target_pos)
+				elem.position -= lambda * dir
+			}
+
+			it := elem.first_child
+			for {
+				child := hm.get(elements, it) or_break
+				sim_solve_joint_constraints(elements, child.handle, dt, elem)
+				it = child.right
+			}
+		}
+	}
+	sim_seperate_bodies_relaxed :: proc(using sim_state: ^SimulationState, dt: f32) {
+		it := hm.iterator_make(&elements)
 		for a, h_a in hm.iterate(&it) {
-			jt := hm.iterator_make(&g_sim.elements)
+			jt := hm.iterator_make(&elements)
 			for b, h_b in hm.iterate(&jt) {
 				if h_a == h_b do continue
 				ab := b.position - a.position
@@ -152,48 +216,12 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 				r2 := (a.radius + b.radius) * (a.radius + b.radius)
 				if d2 > r2 do continue
 
-				overlap := math.sqrt(r2 - d2)
+				error := math.sqrt(r2 - d2)
+				alpha := seperation_compliance / (dt * dt)
+				lambda := error / (a.inv_mass + b.inv_mass + alpha)
 				dir := la.normalize0(ab)
-				// Drastically tone down the seperation to make the simulation
-				// less rigid, allowing branches to overlap.
-				seperation := dir * overlap / 100
-				a.position -= seperation
-				b.position += seperation
-				// this is purely vibes based
-				a.velocity -= seperation
-				b.velocity += seperation
-			}
-		}
-	}
-
-	solve_joint_constraints(&g_sim, g_sim.root_element)
-	solve_joint_constraints :: proc(
-		using sim_state: ^SimulationState,
-		h: Handle,
-		prev: ^Simulation_Element = nil,
-	) {
-		if elem, ok := hm.get(&elements, h); ok {
-			if prev != nil {
-				z_target_dir := prev.orientation * elem.rest_orientation
-				target_dir := Vec2{real(z_target_dir), imag(z_target_dir)}
-				ideal_dist := elem.radius + prev.radius
-				target_pos := prev.position + (target_dir * ideal_dist)
-
-				age := max(1, (elem.age + prev.age) / 2)
-				stiffness := clamp(age, 3, 10)
-
-				error := target_pos - elem.position
-				force := error * stiffness * 0.5
-
-				elem.velocity += force
-				prev.velocity -= force
-			}
-
-			it := elem.first_child
-			for {
-				child := hm.get(&elements, it) or_break
-				solve_joint_constraints(sim_state, child.handle, elem)
-				it = child.right
+				a.velocity -= lambda * a.inv_mass * dir
+				b.velocity += lambda * b.inv_mass * dir
 			}
 		}
 	}
@@ -204,9 +232,7 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 
 	{ 	// render the elements
 		it := hm.iterator_make(&g_sim.elements)
-		counter := 0
 		for e, h in hm.iterate(&it) {
-			counter += 1
 			pos := g_sim.origin + e.position
 			p1 := Vec2{real(e.orientation), imag(e.orientation)}
 			rc_draw_circle(&g_sim.rc, pos, e.radius, color = e.color)
@@ -223,7 +249,13 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 	) {
 		if elem, ok := hm.get(&elements, h); ok {
 			if prev != nil {
-				rc_draw_line(&rc, origin + prev.position, origin + elem.position, 4, PINK)
+				rc_draw_line(
+					&rc,
+					origin + prev.position,
+					origin + elem.position,
+					2 * f32(SIM_MAX_DEPTH - prev.depth),
+					PINK,
+				)
 			}
 
 			it := elem.first_child
