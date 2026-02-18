@@ -18,17 +18,17 @@ ElementMap :: hm.Static_Handle_Map(1024, Simulation_Element, Handle)
 // QUESTION: Should these be mapped into some memory allocated by the platform.
 // This could enable hot reloads for the odin code. Which would be kind of sick.
 SimulationState :: struct {
-	cumulative_time:        f64,
-	window_width:           i32,
-	window_height:          i32,
-	dpr:                    f64,
-	rt_metaballs:           DebugRenderer_RenderTarget,
-	rc:                     DebugRenderer_Context,
-	origin:                 Vec2,
-	num_substeps:           int `ui:"name='Substeps',min=0,max=10"`,
-	seperation_compliance:  f32 `ui:"name='Seperation Compliance',min=0,max=1"`,
-	elements:               ElementMap,
-	root_element:           Handle,
+	cumulative_time:       f64,
+	window_width:          i32,
+	window_height:         i32,
+	dpr:                   f64,
+	rt_metaballs:          DebugRenderer_RenderTarget,
+	rc:                    DebugRenderer_Context,
+	origin:                Vec2,
+	num_substeps:          int `ui:"name='Substeps',min=0,max=10"`,
+	seperation_compliance: f32 `ui:"name='Seperation Compliance',min=0,max=1"`,
+	elements:              ElementMap,
+	root_element:          Handle,
 }
 
 Simulation_Element :: struct {
@@ -43,6 +43,7 @@ Simulation_Element :: struct {
 	orientation:             complex64,
 	angular_velocity:        f32,
 	inv_mass:                f32,
+	magic_soup_of_life:      f32,
 	color:                   Color,
 	radius:                  f32,
 	age:                     f32,
@@ -122,7 +123,8 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 	}
 
 	center := window_center()
-	g_sim.origin = center // + {0, center.y * 0.95}
+
+	g_sim.origin = Vec2{cast(f32)g_sim.window_width * 0.5, cast(f32)g_sim.window_height * 0.95}
 
 	debug_plant_test_code: {
 		it := hm.iterator_make(&g_sim.elements)
@@ -150,6 +152,7 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 	for _ in 0 ..< g_sim.num_substeps {
 		sim_integrate_bodies(&g_sim.elements, dt)
 		sim_solve_joint_constraints(&g_sim.elements, g_sim.root_element, dt)
+		sim_solve_ground_constraint(&g_sim)
 		sim_update_body_velocities(&g_sim.elements, dt)
 		sim_seperate_bodies_relaxed(&g_sim, dt)
 	}
@@ -168,6 +171,18 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 		for e, h in hm.iterate(&it) {
 			e.velocity = (e.position - e.old_position) / dt
 			e.velocity *= 0.9
+		}
+	}
+
+	sim_solve_ground_constraint :: proc(using sim_state: ^SimulationState) {
+		it := hm.iterator_make(&elements)
+		for e, h in hm.iterate(&it) {
+			if h == root_element do continue
+
+			error := e.position.y + e.radius
+			if error <= 0 do continue
+
+			e.position -= {0, error}
 		}
 	}
 
@@ -266,6 +281,13 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 			}
 		}
 	}
+
+	rc_draw_rect(
+		&g_sim.rc,
+		{0, g_sim.origin.y},
+		{f32(g_sim.window_width), f32(g_sim.window_height) * 0.05},
+		GREEN,
+	)
 
 	rc_flush(&g_sim.rc)
 
