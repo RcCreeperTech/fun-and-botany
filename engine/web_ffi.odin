@@ -1,11 +1,11 @@
 #+feature using-stmt
 package web_testing
 
-import "core:mem"
-import "core:strings"
-import "core:fmt"
 import "base:runtime"
+import "core:fmt"
+import "core:mem"
 import "core:reflect"
+import "core:strings"
 
 // Used for FFI with wasm.
 @(private)
@@ -33,7 +33,7 @@ ffi_out_var :: proc($T: typeid) -> ^T {
 }
 
 @(export)
-get_sim_state_ptr :: proc() -> rawptr {return &g_sim}
+get_sim_state_ptr :: proc() -> rawptr {return &g_app_state}
 
 @(export)
 get_sim_state_schema_json :: proc() -> rawptr {
@@ -44,7 +44,7 @@ get_sim_state_schema_json :: proc() -> rawptr {
 	write_string(&sb, "{\n")
 	write_quoted_string(&sb, "schema")
 	write_string(&sb, ": {\n")
-	build_schema_recursive(&sb, &tagged_fields, type_info_of(typeid_of(SimulationState)))
+	build_schema_recursive(&sb, &tagged_fields, type_info_of(typeid_of(ApplicationState)))
 	if sb.buf[len(sb.buf) - 2] == ',' { 	// Remove final comma
 		sb.buf[len(sb.buf) - 2] = ' '
 	}

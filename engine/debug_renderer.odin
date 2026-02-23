@@ -11,8 +11,8 @@ package web_testing
 
 import wgl "WebGL"
 import sm "core:container/small_array"
-import la "core:math/linalg"
 import "core:fmt"
+import la "core:math/linalg"
 
 Vec2 :: [2]f32
 
@@ -119,7 +119,7 @@ MAX_BATCH_INDICES :: MAX_BATCH_VERTICES * 2
 MAX_BATCH_INSTANCES :: 4096
 DebugRenderer_Context :: struct {
 	mode:                           DebugRenderer_Mode,
-	white_tex:                      wgl.Texture , // A 1x1 white pixel texture
+	white_tex:                      wgl.Texture, // A 1x1 white pixel texture
 	current_tex:                    wgl.Texture,
 	ortho_proj:                     la.Matrix4f32,
 	soft_shapes:                    sm.Small_Array(MAX_BATCH_INDICES, SoftShape_InstanceData),
@@ -155,10 +155,7 @@ rc_initialize :: proc(using ctx: ^DebugRenderer_Context) {
 	if !init_basic_pipeline(ctx) do fmt.eprintfln("Unable to setup basic pipeline")
 	if !init_soft_pipeline(ctx) do fmt.eprintfln("Unable to setup soft pipeline")
 	// TODO: new pipeline?
-	if s, ok := wgl.CreateProgramFromStrings(
-		{BASIC_VERT},
-		{SOFT_SHAPES_COMPOSITE_FRAG},
-	); ok {
+	if s, ok := wgl.CreateProgramFromStrings({BASIC_VERT}, {SOFT_SHAPES_COMPOSITE_FRAG}); ok {
 		soft_composite_shader = s
 	}
 
@@ -310,7 +307,7 @@ rc_set_render_target :: proc(
 		wgl.Viewport(0, 0, target.width, target.height)
 	} else {
 		wgl.BindFramebuffer(wgl.FRAMEBUFFER, 0)
-		wgl.Viewport(0, 0, g_sim.window_width, g_sim.window_height)
+		wgl.Viewport(0, 0, g_app_state.window_width, g_app_state.window_height)
 	}
 }
 
@@ -402,8 +399,8 @@ rc_ensure_space :: proc(using ctx: ^DebugRenderer_Context, vertices, indices: in
 	vertex_overflow := sm.len(basic_vertices) + vertices >= MAX_BATCH_VERTICES
 	index_overflow := sm.len(basic_indices) + indices >= MAX_BATCH_INDICES
 	if vertex_overflow || index_overflow {
-			rc_flush(ctx)
-		}
+		rc_flush(ctx)
+	}
 }
 
 rc_append_vertex :: proc(using ctx: ^DebugRenderer_Context, vert: Vertex2D) -> u16 {
@@ -467,6 +464,33 @@ rc_draw_line :: proc(
 	rc_append(ctx, p1)
 	rc_append(ctx, p4)
 	rc_append(ctx, p3)
+}
+
+rc_draw_wedge :: proc(
+	using ctx: ^DebugRenderer_Context,
+	start, end: Vec2,
+	r1, r2: f32,
+	color: [4]Color = WHITE,
+) {
+	rc_ensure_space(ctx, 4, 6)
+	fcolors: [4]FColor
+	for c, i in color do fcolors[i] = to_fcolor(c)
+
+	ab := la.normalize0(end - start)
+	perp := Vec2{-ab.y, ab.x}
+
+	p1 := rc_append(ctx, Vertex2D{pos = start - perp * r1, uv = {0, 0}, color = fcolors[0]})
+	p2 := rc_append(ctx, Vertex2D{pos = start + perp * r1, uv = {1, 0}, color = fcolors[1]})
+	p3 := rc_append(ctx, Vertex2D{pos = end + perp * r2, uv = {1, 1}, color = fcolors[2]})
+	p4 := rc_append(ctx, Vertex2D{pos = end - perp * r2, uv = {0, 1}, color = fcolors[3]})
+
+	// Indices for two triangles
+	rc_append(ctx, p1)
+	rc_append(ctx, p2)
+	rc_append(ctx, p3)
+	rc_append(ctx, p1)
+	rc_append(ctx, p3)
+	rc_append(ctx, p4)
 }
 
 rc_draw_rect :: proc(using ctx: ^DebugRenderer_Context, pos, size: Vec2, color := WHITE) {

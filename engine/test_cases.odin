@@ -4,7 +4,7 @@ package web_testing
 import wgl "WebGL"
 import "core:math"
 
-test_renderer_metaball_example :: proc(using app_state: ^SimulationState, center: Vec2) {
+test_renderer_metaball_example :: proc(using app_state: ^ApplicationState, center: Vec2) {
 	a := center + {-200, -200}
 	b := center + {-200, 200}
 
@@ -41,7 +41,7 @@ test_renderer_metaball_example :: proc(using app_state: ^SimulationState, center
 }
 
 
-test_renderer_layer_compositing :: proc(using app_state: ^SimulationState) {
+test_renderer_layer_compositing :: proc(using app_state: ^ApplicationState) {
 	// Explicitly set the target to our off-screen buffer.
 	// This automatically flushes any pending draw calls for the previous target.
 	rc_set_render_target(&rc, rt_metaballs)
@@ -68,7 +68,7 @@ test_renderer_layer_compositing :: proc(using app_state: ^SimulationState) {
 	rc_flush(&rc)
 }
 
-test_draw_a_silly_pinwheel :: proc(using app_state: ^SimulationState) {
+test_draw_a_silly_pinwheel :: proc(using app_state: ^ApplicationState) {
 	wgl.ClearColor(0.9, 0.6, 0.7, 1.0)
 	wgl.Clear(auto_cast wgl.COLOR_BUFFER_BIT)
 
