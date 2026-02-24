@@ -53,10 +53,13 @@ main :: proc() {
 		Sim_Element {
 			rest_orientation = UP,
 			orientation = UP,
-			thickness = 30,
+			thickness = 2,
 			color = DARKGREEN,
 			debug_state = .Bud,
 			joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
+			growth_rate = SIM_BASELINE_GROWTH_RATE,
+			target_length = 1,
+			target_thickness = 15,
 		},
 	)
 }
@@ -112,14 +115,14 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 		prev: ^Sim_Element = nil,
 	) {
 		if elem, ok := hm.get(&elements, h); ok {
-			rc_draw_circle(&rc, origin + elem.position, elem.thickness * 0.2, color = elem.color)
+			rc_draw_circle(&rc, origin + elem.position, elem.thickness, color = elem.color)
 			if prev != nil {
 				rc_draw_wedge(
 					&rc,
 					origin + prev.position,
 					origin + elem.position,
-					prev.thickness * 0.2,
-					elem.thickness * 0.2,
+					prev.thickness,
+					elem.thickness,
 					{prev.color, prev.color, elem.color, elem.color},
 				)
 			}

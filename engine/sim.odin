@@ -2,29 +2,39 @@
 package web_testing
 
 import hm "core:container/handle_map"
+import "core:fmt"
 import "core:math"
 import cx "core:math/cmplx"
 import la "core:math/linalg"
 import "core:math/rand"
 
 SIM_BASELINE_JOINT_COMPLIANCE :: 0.001
+SIM_BASELINE_GROWTH_RATE :: 1
+SIM_END_GROWTH_RATE :: 0.1
+SIM_CELL_AGING_RATE :: 3
 
 sim_update :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	// TODO: Inject resources into the root and set any global sim parameters
-	sim_age_all_cells(app_state, delta_time)
+	sim_tick_cells(app_state, delta_time)
 	sim_execute_debug_plant_test_code(app_state, delta_time)
 	sim_step_physics(app_state, delta_time)
 }
 
-sim_age_all_cells :: proc(using app_state: ^ApplicationState, delta_time: f32) {
+sim_tick_cells :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	it := hm.iterator_make(&g_app_state.elements)
-	for e, _ in hm.iterate(&it) do e.age += delta_time
+	for e, _ in hm.iterate(&it) do tick(e, delta_time)
+	// TODO: gate growth by resource consumption
+	tick :: proc(using self: ^Sim_Element, dt: f32) {
+		growth_rate = exp_decay(growth_rate, SIM_END_GROWTH_RATE, SIM_CELL_AGING_RATE, dt)
+		thickness = exp_decay(thickness, target_thickness, growth_rate, dt)
+		length = exp_decay(length, target_length, growth_rate, dt)
+		return
+	}
 }
 
 sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	it := hm.iterator_make(&g_app_state.elements)
 	for element, h in hm.iterate(&it) {
-		growth := element_grow(element, 1)
 
 		if element.depth == SIM_MAX_DEPTH {
 			element.debug_state = .Petal
@@ -32,7 +42,7 @@ sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, de
 
 		switch element.debug_state {
 		case .Bud:
-			if growth <= 0.05 { 	// Only try to apply next state once growth slowed down sufficiently
+			if element.growth_rate <= 1.5 * SIM_END_GROWTH_RATE { 	// Only try to apply next state once growth slowed down sufficiently
 				if rand.float32() < 0.33 {
 					element_spawn(&g_app_state.elements, element)
 					element.debug_state = .Stem // should spawn do this automatically?
@@ -53,7 +63,8 @@ sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, de
 			// Terminal State
 			// Todo: auxilary growth
 			element_dye(element, BROWN, 0.1)
-			element.thickness += 0.01 * math.exp(-element.age / 10)
+			element.target_length += 0.001
+			element.target_thickness += 0.005
 		case .Petal:
 			// Terminal state
 			element_dye(element, PINK)
@@ -191,28 +202,18 @@ Sim_Element :: struct {
 	angle:                   f32,
 	angular_velocity:        f32,
 	inv_mass:                f32,
+	// Other Data
 	thickness:               f32,
 	length:                  f32,
+	target_thickness:        f32,
+	target_length:           f32,
 	joint_compliance:        f32,
-	// Other Data
-	age:                     f32,
+	growth_rate:             f32,
 	color:                   Color,
 	depth:                   u8,
 	debug_state:             Sim_Debug_GrowthState, // TODO: Elements will be state machines with finite memory
 }
-// Try to expand the radius of the cell by the given amount. Will consume sugar,
-// water, pgh equal to the cost to grow by that amount or use as much as
-// possible. Cells growth is also inversly proprotional to their age.
-element_grow :: proc(using self: ^Sim_Element, amount: f32) -> (actual_growth: f32) {
-	// NOTE: This might be a good place to impose the growth upper bound such that children cannot exceed some ratio of the parent's size
-	// This would mean that the upper bound is based on the size of the parent dynamically so auxiliary growth could still be modeled without an explicit pass to update the upper bounds of the children
-	// TODO: gate growth by resource consumption
-	actual_growth = amount * math.exp(-self.age * 2) * 0.5
-	// Should these be independently controllable?
-	self.thickness += actual_growth
-	self.length += actual_growth
-	return
-}
+
 element_spawn :: proc(elements: ^ElementMap, e: ^Sim_Element, theta: f32 = 0, mass: f32 = 1) {
 	rotation := cx.rect_complex64(1, theta)
 
@@ -226,9 +227,12 @@ element_spawn :: proc(elements: ^ElementMap, e: ^Sim_Element, theta: f32 = 0, ma
 		orientation      = e.orientation * rotation,
 		inv_mass         = 1 / mass if mass != 0 else 0,
 		joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
+		growth_rate      = SIM_BASELINE_GROWTH_RATE,
 		depth            = e.depth + 1,
 		color            = e.color,
 		debug_state      = e.debug_state,
+		target_thickness = e.target_thickness * 0.8,
+		target_length    = e.target_length * 0.8,
 	},
 	)
 
@@ -253,4 +257,10 @@ element_dye :: proc(using self: ^Sim_Element, target: Color, t: f32 = 0.5) {
 	a, b := to_fcolor(self.color), to_fcolor(target)
 	new_color := la.lerp(a, b, t)
 	self.color = to_color(new_color)
+}
+
+// Lerp that respects delta time
+// Useful range approx. 1 to 25, from slow to fast
+exp_decay :: proc(a, b: $T, decay, dt: f32) -> T {
+	return b + (a - b) * math.exp(-decay * dt)
 }
