@@ -21,11 +21,11 @@ ApplicationState :: struct {
 	dpr:                   f64,
 	rt_metaballs:          DebugRenderer_RenderTarget,
 	rc:                    DebugRenderer_Context,
-	origin:                Vec2,
 	num_substeps:          int `ui:"name='Substeps',min=0,max=10"`,
 	seperation_compliance: f32 `ui:"name='Seperation Compliance',min=0,max=1"`,
 	elements:              ElementMap,
 	root_element:          Handle,
+	camera:                Camera,
 }
 
 // TODO: @(private="file")
@@ -45,21 +45,24 @@ main :: proc() {
 	fmt.printfln("Created graphics context: WebGL %d.%d ES %d.%d", major, minor, esmajor, esminor)
 	rc_initialize(&g_app_state.rc)
 
+	g_app_state.camera = {
+		zoom = 0.5,
+	}
+
 	g_app_state.seperation_compliance = 0.00008
-	g_app_state.num_substeps = 8
+	g_app_state.num_substeps = 32
 
 	g_app_state.root_element = hm.add(
 		&g_app_state.elements,
 		Sim_Element {
-			rest_orientation = UP,
-			orientation = UP,
-			thickness = 2,
+			angle = math.TAU / 4,
 			color = DARKGREEN,
+			target_color = DARKGREEN,
 			debug_state = .Bud,
 			joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
 			growth_rate = SIM_BASELINE_GROWTH_RATE,
-			target_length = 1,
-			target_thickness = 15,
+			target_length = 80,
+			target_thickness = 40,
 		},
 	)
 }
@@ -74,76 +77,24 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 
 	center := window_center()
 
-	g_app_state.origin = Vec2 {
-		cast(f32)g_app_state.window_width * 0.5,
-		cast(f32)g_app_state.window_height * 0.95,
-	}
-
-	sim_update(&g_app_state, f32(delta_time))
-
-	// Clear the off-screen buffer to transparent (required for compositing later)
-	wgl.ClearColor(0.13, 0.13, 0.13, 0)
-	wgl.Clear(auto_cast wgl.COLOR_BUFFER_BIT)
-
-	when false { 	// render the elements
-		it := hm.iterator_make(&g_app_state.elements)
-		for e, h in hm.iterate(&it) {
-			pos := g_app_state.origin + e.position
-			p1 := Vec2{real(e.orientation), imag(e.orientation)}
-			debug_color: Color
-			switch e.debug_state {
-			case .Bud:
-				debug_color = GREEN
-			case .Node:
-				debug_color = RED
-			case .Stem:
-				debug_color = YELLOW
-			case .Petal:
-				debug_color = PINK
+	when true {
+		sim_update(&g_app_state, f32(delta_time))
+		sim_render(&g_app_state, f32(delta_time))
+	} else {
+		foo(&g_app_state)
+		foo :: proc(using app_state: ^ApplicationState) {
+			rc_clear(&rc, BG_COLOR)
+			rc_draw_circle(&rc, 0, 50, color = RED)
+			if rc_camera_mode(camera) {
+				rc_draw_circle(&rc, 0, 50, color = GREEN)
+				L :: 100
+				rc_draw_line(&rc, 0, {0, L}, color = WHITE)
+				s, c := math.sincos_f32(f32(cumulative_time) / 100)
+				rc_draw_line(&rc, 0, {c, s} * L, color = PINK)
 			}
-			debug_color = color_alpha(debug_color, 0.23)
-			rc_draw_circle(&g_app_state.rc, pos, e.thickness, color = debug_color)
-			rc_draw_circle(&g_app_state.rc, pos, 5, color = RED)
-			rc_draw_line(&g_app_state.rc, pos, pos + p1 * e.thickness * 0.8, 2)
+			rc_flush(&rc)
 		}
 	}
-
-	draw_skeleton(&g_app_state, g_app_state.root_element)
-	draw_skeleton :: proc(
-		using sim_state: ^ApplicationState,
-		h: Handle,
-		prev: ^Sim_Element = nil,
-	) {
-		if elem, ok := hm.get(&elements, h); ok {
-			rc_draw_circle(&rc, origin + elem.position, elem.thickness, color = elem.color)
-			if prev != nil {
-				rc_draw_wedge(
-					&rc,
-					origin + prev.position,
-					origin + elem.position,
-					prev.thickness,
-					elem.thickness,
-					{prev.color, prev.color, elem.color, elem.color},
-				)
-			}
-
-			it := elem.first_child
-			for {
-				child := hm.get(&elements, it) or_break
-				draw_skeleton(sim_state, child.handle, elem)
-				it = child.right
-			}
-		}
-	}
-
-	rc_draw_rect(
-		&g_app_state.rc,
-		{0, g_app_state.origin.y},
-		{f32(g_app_state.window_width), f32(g_app_state.window_height) * 0.05},
-		DARKGREEN,
-	)
-
-	rc_flush(&g_app_state.rc)
 
 	return true
 }
@@ -154,6 +105,10 @@ window_resize :: proc(width, height, dpr: f64) {
 	g_app_state.window_height = i32(height * dpr)
 	g_app_state.dpr = dpr
 	w, h := g_app_state.window_width, g_app_state.window_height
+	g_app_state.camera = {
+		zoom   = 1,
+		offset = Vec2{f32(w), f32(h)} * 0.5,
+	}
 	wgl.Viewport(0, 0, w, h)
 	g_app_state.rc.ortho_proj = la.matrix_ortho3d_f32(0, f32(w), f32(h), 0, -1, 1)
 	fmt.println("Resized the window: ", w, h, dpr)

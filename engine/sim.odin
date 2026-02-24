@@ -1,17 +1,19 @@
 #+feature using-stmt
 package web_testing
 
+import wgl "WebGL"
 import hm "core:container/handle_map"
 import "core:fmt"
 import "core:math"
-import cx "core:math/cmplx"
 import la "core:math/linalg"
 import "core:math/rand"
 
+SIM_DEBUG_RENDERING :: false
 SIM_BASELINE_JOINT_COMPLIANCE :: 0.001
-SIM_BASELINE_GROWTH_RATE :: 1
-SIM_END_GROWTH_RATE :: 0.1
-SIM_CELL_AGING_RATE :: 3
+SIM_DYE_RATE :: 2.3 // TODO: Per cell
+SIM_BASELINE_GROWTH_RATE :: 0.5
+SIM_END_GROWTH_RATE :: 0.01
+SIM_CELL_AGING_RATE :: 0.7
 
 sim_update :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	// TODO: Inject resources into the root and set any global sim parameters
@@ -28,6 +30,15 @@ sim_tick_cells :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 		growth_rate = exp_decay(growth_rate, SIM_END_GROWTH_RATE, SIM_CELL_AGING_RATE, dt)
 		thickness = exp_decay(thickness, target_thickness, growth_rate, dt)
 		length = exp_decay(length, target_length, growth_rate, dt)
+		when true {
+			ftarget := to_fcolor(target_color)
+			fcolor := to_fcolor(color)
+			for i in 0 ..< 4 {
+				color[i] = u8(exp_decay(fcolor[i], ftarget[i], SIM_DYE_RATE, dt) * 255)
+			}
+		} else {
+			color = target_color
+		}
 		return
 	}
 }
@@ -42,7 +53,9 @@ sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, de
 
 		switch element.debug_state {
 		case .Bud:
-			if element.growth_rate <= 1.5 * SIM_END_GROWTH_RATE { 	// Only try to apply next state once growth slowed down sufficiently
+			if element.growth_rate <= SIM_END_GROWTH_RATE * 5 { 	// Only try to apply next state once growth slowed down sufficiently
+				// element_spawn(&g_app_state.elements, element)
+				// element.debug_state = .Stem // should spawn do this automatically?
 				if rand.float32() < 0.33 {
 					element_spawn(&g_app_state.elements, element)
 					element.debug_state = .Stem // should spawn do this automatically?
@@ -62,7 +75,7 @@ sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, de
 		case .Stem:
 			// Terminal State
 			// Todo: auxilary growth
-			element_dye(element, BROWN, 0.1)
+			element_dye(element, BROWN)
 			element.target_length += 0.001
 			element.target_thickness += 0.005
 		case .Petal:
@@ -77,7 +90,7 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	dt: f32 = delta_time / f32(num_substeps)
 	for _ in 0 ..< num_substeps {
 		sim_integrate_bodies(&elements, dt)
-		sim_solve_joint_constraints(&elements, root_element, dt)
+		sim_solve_branch_constraints(&elements, root_element, dt)
 		sim_solve_ground_constraint(app_state)
 		sim_update_body_velocities(&elements, dt)
 		sim_seperate_bodies_relaxed(app_state, dt)
@@ -107,52 +120,62 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 			if h == root_element do continue
 
 			error := e.position.y + e.thickness
-			if error <= 0 do continue
+			if error > 0 do continue
 
 			e.position -= {0, error}
 		}
 	}
 
-	sim_solve_joint_constraints :: proc(
+	sim_solve_branch_constraints :: proc(
 		elements: ^ElementMap,
 		h: Handle,
 		dt: f32,
-		prev: ^Sim_Element = nil,
+		parent: ^Sim_Element = nil,
 	) {
 		self, ok := hm.get(elements, h)
 		if !ok do return
 
-		if prev != nil {
-			// Compute the target position for the element based on the orientation and distance constraints
-			z_target_dir := prev.orientation * self.rest_orientation
-			target_dir := Vec2{real(z_target_dir), imag(z_target_dir)}
-			ideal_dist := (self.thickness + prev.thickness)
-			// ok so here is what i want to do. delete the component of this
-			// that handles distance based seperation and then make that a
-			// seperate compliance factor that can be controlled seperately
-			// from the orientation of the child limbs. The orientation
-			// should still be a position based resolution so the math
-			// should not get too complicated. But then if the sim ever
-			// needs to handle torque that is isolated to this part of the
-			// engine. What I want this to do is use the target dir and then
-			// calc the current dist of the elem to the prev. Do not modify
-			// that distance in this constraint only constrain the
-			// orientation of the child.
-			target_pos := prev.position + (target_dir * ideal_dist)
-			compliance := prev.joint_compliance
+		parent := parent
+		if parent == nil {
+			dummy := Sim_Element {
+				angle = math.TAU / 4,
+			}
+			parent = &dummy
+		}
 
-			// NOTE: Masses cancel because the parent is unaffected by this constraint
-			error := la.distance(target_pos, self.position)
-			alpha := compliance / (dt * dt)
-			lambda := error / alpha
-			dir := la.normalize0(self.position - target_pos)
-			self.position -= lambda * dir
+		base_pos := parent.position
+		tip_pos := self.position
+		base_to_tip := base_pos - tip_pos
+		current_length := la.length(base_to_tip)
+		{ 	// constrain angle
+			target_angle := parent.angle + self.rest_angle
+			error := math.angle_diff(self.angle, target_angle)
+			// Apply Torque/Correction
+			s, c := math.sincos(self.angle)
+			dir := Vec2{-s, c} // tangent to the arc
+			// Calculate arc length error
+			arc_error := error * self.length
+
+			alpha := self.joint_compliance / (dt * dt)
+			lambda := arc_error / (self.inv_mass + alpha)
+
+			self.position += dir * lambda * self.inv_mass
+			// Re-calculate angle based on the new tip position for next frame
+			new_axis := self.position - base_pos
+			self.angle = math.atan2(new_axis.y, new_axis.x)
+		}
+		{ 	// constrain length
+			error := max(0, self.length - current_length)
+			s, c := math.sincos(parent.angle)
+			dir := Vec2{c, s}
+			// Constraint is fully rigid
+			self.position += dir * error
 		}
 
 		it := self.first_child
 		for {
 			child := hm.get(elements, it) or_break
-			sim_solve_joint_constraints(elements, child.handle, dt, self)
+			sim_solve_branch_constraints(elements, child.handle, dt, self)
 			it = child.right
 		}
 	}
@@ -196,43 +219,44 @@ Sim_Element :: struct {
 	old_position:            Vec2,
 	position:                Vec2,
 	velocity:                Vec2,
-	rest_orientation:        complex64, // TODO: remove
-	orientation:             complex64, // TODO: remove
+	rest_angle:              f32, // Relative to the parent's angle
 	old_angle:               f32,
-	angle:                   f32,
+	angle:                   f32, // Angle in world space
 	angular_velocity:        f32,
 	inv_mass:                f32,
-	// Other Data
-	thickness:               f32,
+	joint_compliance:        f32,
 	length:                  f32,
+	thickness:               f32,
+	// Growth Parameters
 	target_thickness:        f32,
 	target_length:           f32,
-	joint_compliance:        f32,
+	target_color:            Color,
 	growth_rate:             f32,
 	color:                   Color,
+	// Other Data
 	depth:                   u8,
 	debug_state:             Sim_Debug_GrowthState, // TODO: Elements will be state machines with finite memory
 }
 
 element_spawn :: proc(elements: ^ElementMap, e: ^Sim_Element, theta: f32 = 0, mass: f32 = 1) {
-	rotation := cx.rect_complex64(1, theta)
-
 	child := hm.add(
 	elements,
 	Sim_Element {
 		parent           = e.handle, // point to the parent
 		right            = e.first_child, // link into the head of the sibling dll
-		position         = e.position + {real(e.orientation), imag(e.orientation)} * e.thickness * 0.5,
-		rest_orientation = rotation,
-		orientation      = e.orientation * rotation,
+		position         = e.position,
+		rest_angle       = theta,
+		length           = 0.1, // for numerical stability
+		angle            = e.angle + theta,
 		inv_mass         = 1 / mass if mass != 0 else 0,
 		joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
 		growth_rate      = SIM_BASELINE_GROWTH_RATE,
 		depth            = e.depth + 1,
 		color            = e.color,
+		target_color     = e.target_color,
 		debug_state      = e.debug_state,
 		target_thickness = e.target_thickness * 0.8,
-		target_length    = e.target_length * 0.8,
+		target_length    = e.target_length * 0.95,
 	},
 	)
 
@@ -252,15 +276,82 @@ element_strengthen :: proc(
 ) {
 	unimplemented("TODO: joint strengthening")
 }
-element_dye :: proc(using self: ^Sim_Element, target: Color, t: f32 = 0.5) {
-	t := clamp(t, 0, 1)
-	a, b := to_fcolor(self.color), to_fcolor(target)
-	new_color := la.lerp(a, b, t)
-	self.color = to_color(new_color)
+element_dye :: proc(using self: ^Sim_Element, target: Color) {
+	self.target_color = target
 }
 
 // Lerp that respects delta time
 // Useful range approx. 1 to 25, from slow to fast
 exp_decay :: proc(a, b: $T, decay, dt: f32) -> T {
 	return b + (a - b) * math.exp(-decay * dt)
+}
+
+sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
+	// Clear the off-screen buffer to transparent (required for compositing later)
+	rc_clear(&rc, BG_COLOR)
+
+	{
+		lo, hi: Vec2 = math.INF_F32, -math.INF_F32
+		it := hm.iterator_make(&elements)
+		for e, _ in hm.iterate(&it) {
+			lo.x = min(e.position.x, lo.x)
+			lo.y = min(e.position.y, lo.y)
+			hi.x = max(e.position.x, hi.x)
+			hi.y = max(e.position.y, hi.y)
+		}
+		camera_target := (hi - lo) / 2
+		camera.target = exp_decay(camera.target, camera_target, 5, dt)
+	}
+
+	if rc_camera_mode(camera) {
+		draw_plant(app_state, root_element)
+	}
+
+	draw_plant :: proc(using sim_state: ^ApplicationState, h: Handle, prev: ^Sim_Element = nil) {
+		if e, ok := hm.get(&elements, h); ok {
+			rc_draw_circle(&rc, e.position, e.thickness, color = e.color)
+			prev := prev
+			// Inject a dummy prev for the origin segment
+			if prev == nil {
+				dummy := Sim_Element {
+					angle     = math.TAU / 4,
+					thickness = e.thickness * 1.2,
+					color     = e.color,
+				}
+				prev = &dummy
+			}
+			rc_draw_wedge(
+				&rc,
+				prev.position,
+				e.position,
+				prev.thickness,
+				e.thickness,
+				{prev.color, prev.color, e.color, e.color},
+			)
+
+			when SIM_DEBUG_RENDERING {
+				rc_draw_circle(&rc, prev.position, 5, color = RED)
+				s, c := math.sincos(prev.angle)
+				rc_draw_line(&rc, prev.position, prev.position + {c, s} * 50, 2)
+				rc_draw_circle(&rc, e.position, 8, color = GREEN)
+			}
+
+			it := e.first_child
+			for {
+				child := hm.get(&elements, it) or_break
+				draw_plant(sim_state, child.handle, e)
+				it = child.right
+			}
+		}
+	}
+
+	// TODO: add back the ground and calculate its world space
+	// rc_draw_rect(
+	// 	&rc,
+	// 	{0, origin.y},
+	// 	{f32(window_width), f32(window_height) * 0.05},
+	// 	DARKGREEN,
+	// )
+
+	rc_flush(&rc)
 }

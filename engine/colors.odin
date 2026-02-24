@@ -2,6 +2,7 @@ package web_testing
 
 Color :: [4]u8
 
+BG_COLOR :: Color{0x18, 0x18, 0x18, 255}
 LIGHTGRAY :: Color{200, 200, 200, 255}
 GRAY :: Color{130, 130, 130, 255}
 DARKGRAY :: Color{80, 80, 80, 255}

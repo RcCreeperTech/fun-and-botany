@@ -12,9 +12,12 @@ package web_testing
 import wgl "WebGL"
 import sm "core:container/small_array"
 import "core:fmt"
+import "core:math"
 import la "core:math/linalg"
 
+Matrix3 :: la.Matrix3x3f32
 Vec2 :: [2]f32
+Vec3 :: [3]f32
 
 Vertex2D :: struct {
 	pos:   Vec2,
@@ -119,6 +122,8 @@ MAX_BATCH_INDICES :: MAX_BATCH_VERTICES * 2
 MAX_BATCH_INSTANCES :: 4096
 DebugRenderer_Context :: struct {
 	mode:                           DebugRenderer_Mode,
+	current_transform:              Matrix3,
+	transform_stack:                [dynamic]Matrix3,
 	white_tex:                      wgl.Texture, // A 1x1 white pixel texture
 	current_tex:                    wgl.Texture,
 	ortho_proj:                     la.Matrix4f32,
@@ -158,6 +163,8 @@ rc_initialize :: proc(using ctx: ^DebugRenderer_Context) {
 	if s, ok := wgl.CreateProgramFromStrings({BASIC_VERT}, {SOFT_SHAPES_COMPOSITE_FRAG}); ok {
 		soft_composite_shader = s
 	}
+
+	ctx.current_transform = 1
 
 	// Default texture
 	white_tex = wgl.CreateTexture()
@@ -338,6 +345,12 @@ rc_set_mode :: proc(using ctx: ^DebugRenderer_Context, new_mode: DebugRenderer_M
 	}
 }
 
+rc_clear :: proc(_: ^DebugRenderer_Context, color: Color) {
+	fc := to_fcolor(color)
+	wgl.ClearColor(fc.r, fc.g, fc.b, fc.a)
+	wgl.Clear(auto_cast wgl.COLOR_BUFFER_BIT)
+}
+
 rc_flush :: proc(using ctx: ^DebugRenderer_Context) {
 	switch mode {
 	case .basic:
@@ -409,6 +422,8 @@ rc_append_vertex :: proc(using ctx: ^DebugRenderer_Context, vert: Vertex2D) -> u
 		"Drawing basic primitive shapes requires the renderer to be in basic mode",
 	)
 	idx := basic_vertices.len
+	vert := vert
+	vert.pos = (ctx.current_transform * Vec3{vert.pos.x, vert.pos.y, 1}).xy
 	if !sm.append(&basic_vertices, vert) {
 		fmt.eprintfln("Failed to append to vertex buffer!")
 	}
@@ -632,4 +647,78 @@ draw_soft_bezier :: proc(
 		bezier = {start, end, control},
 	}
 	rc_append(ctx, inst)
+}
+
+rc_push_transform :: proc(using ctx: ^DebugRenderer_Context) {
+	append(&transform_stack, current_transform)
+}
+rc_pop_transform :: proc(using ctx: ^DebugRenderer_Context) {
+	if transform, ok := pop_safe(&transform_stack); ok {
+		current_transform = transform
+	}
+}
+
+Camera :: struct {
+	target:      Vec2,
+	orientation: f32,
+	offset:      Vec2,
+	zoom:        f32,
+}
+
+camera_screen_to_world :: proc(using camera: Camera, pos: Vec2) -> (out: Vec2) {
+	t := la.inverse(camera_transform(camera))
+	return (t * Vec3{pos.x, pos.y, 1}).xy
+}
+
+camera_transform :: proc(using camera: Camera) -> (t: Matrix3) {
+	y_flip: Vec2 = {1, -1}
+	t =
+		translate(offset) *
+		rotate(orientation) *
+		scale(auto_cast g_app_state.dpr) *
+		scale(zoom) *
+		scale(y_flip) *
+		translate(-target)
+	return
+}
+
+// NOTE: This style of function allows us to treat this as a scoped function.
+@(deferred_none = rc_end_camera_mode)
+rc_camera_mode :: proc(using camera: Camera) -> (dummy := true) {
+	rc_push_transform(&g_app_state.rc)
+	g_app_state.rc.current_transform *= camera_transform(camera)
+	return
+}
+
+rc_end_camera_mode :: proc() {
+	rc_pop_transform(&g_app_state.rc)
+}
+
+translate :: proc(t: Vec2) -> (m: Matrix3) {
+	// odinfmt: disable
+	return {
+		1,  0,  t.x,
+		0,  1,  t.y,
+		0,  0,  1
+	}
+	// odinfmt: enable
+}
+rotate :: proc(theta: f32) -> Matrix3 {
+	s, c := math.sincos(theta)
+	// odinfmt: disable
+	return {
+		c, -s,  0,
+		s,  c,  0,
+		0,  0,  1
+	}
+	// odinfmt: enable
+}
+scale :: proc(s: Vec2) -> Matrix3 {
+	// odinfmt: disable
+	return {
+		s.x, 0,   0,
+		0,   s.y, 0,
+		0,   0,   1,
+	}
+	// odinfmt: enable
 }
