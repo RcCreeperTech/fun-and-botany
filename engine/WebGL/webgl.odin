@@ -1,3 +1,4 @@
+#+build js
 package webgl
 
 foreign import "webgl"
