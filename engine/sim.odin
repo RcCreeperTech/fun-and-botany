@@ -301,7 +301,7 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 			hi.x = max(e.position.x, hi.x)
 			hi.y = max(e.position.y, hi.y)
 		}
-		camera_target := (hi - lo) / 2
+		camera_target := (hi + lo) / 2
 		camera.target = exp_decay(camera.target, camera_target, 5, dt)
 	}
 
