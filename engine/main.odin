@@ -9,7 +9,6 @@ import cx "core:math/cmplx"
 import la "core:math/linalg"
 import "core:math/rand"
 
-UP :: -1i
 SIM_MAX_DEPTH :: 10
 
 // QUESTION: Should these be mapped into some memory allocated by the platform.
@@ -50,12 +49,13 @@ main :: proc() {
 	}
 
 	g_app_state.seperation_compliance = 0.00008
-	g_app_state.num_substeps = 32
+	g_app_state.num_substeps = 4
 
 	g_app_state.root_element = hm.add(
 		&g_app_state.elements,
 		Sim_Element {
-			angle = math.TAU / 4,
+			position = {0, 1},
+			rest_angle = math.TAU / 4,
 			color = DARKGREEN,
 			target_color = DARKGREEN,
 			debug_state = .Bud,

@@ -1,15 +1,13 @@
 #+feature using-stmt
 package web_testing
 
-import wgl "WebGL"
 import hm "core:container/handle_map"
-import "core:fmt"
 import "core:math"
 import la "core:math/linalg"
 import "core:math/rand"
 
 SIM_DEBUG_RENDERING :: false
-SIM_BASELINE_JOINT_COMPLIANCE :: 0.001
+SIM_BASELINE_JOINT_COMPLIANCE :: 0.000001
 SIM_DYE_RATE :: 2.3 // TODO: Per cell
 SIM_BASELINE_GROWTH_RATE :: 0.5
 SIM_END_GROWTH_RATE :: 0.01
@@ -43,48 +41,6 @@ sim_tick_cells :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	}
 }
 
-sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, delta_time: f32) {
-	it := hm.iterator_make(&g_app_state.elements)
-	for element, h in hm.iterate(&it) {
-
-		if element.depth == SIM_MAX_DEPTH {
-			element.debug_state = .Petal
-		}
-
-		switch element.debug_state {
-		case .Bud:
-			if element.growth_rate <= SIM_END_GROWTH_RATE * 5 { 	// Only try to apply next state once growth slowed down sufficiently
-				// element_spawn(&g_app_state.elements, element)
-				// element.debug_state = .Stem // should spawn do this automatically?
-				if rand.float32() < 0.33 {
-					element_spawn(&g_app_state.elements, element)
-					element.debug_state = .Stem // should spawn do this automatically?
-				} else {
-					if rand.float32() < 0.95 {
-						element.debug_state = .Node
-					} else {
-						element.debug_state = .Petal
-					}
-				}
-			}
-		case .Node:
-			element.debug_state = .Bud
-			if rand.float32() < 0.88 do element_spawn(&g_app_state.elements, element, -math.τ / 9)
-			if rand.float32() < 0.77 do element_spawn(&g_app_state.elements, element, math.τ / 9)
-			element.debug_state = .Stem
-		case .Stem:
-			// Terminal State
-			// Todo: auxilary growth
-			element_dye(element, BROWN)
-			element.target_length += 0.001
-			element.target_thickness += 0.005
-		case .Petal:
-			// Terminal state
-			element_dye(element, PINK)
-		}
-	}
-}
-
 // Run physics substeps for the simulated world
 sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	dt: f32 = delta_time / f32(num_substeps)
@@ -100,7 +56,8 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 		it := hm.iterator_make(elements)
 		for e, h in hm.iterate(&it) {
 			if e.inv_mass == 0 do continue
-			// e.velocity.y += 9.81 / e.inv_mass
+
+			e.velocity.y -= 9.81 * dt
 			e.old_position = e.position
 			e.position += e.velocity * dt
 		}
@@ -108,9 +65,11 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 
 	sim_update_body_velocities :: proc(elements: ^ElementMap, dt: f32) {
 		it := hm.iterator_make(elements)
+		damping_per_frame :: 0.95
+		damping_per_substep := math.pow(damping_per_frame, 1 / f32(g_app_state.num_substeps)) // FIXME!!!!!!!!!!!!!!
 		for e, h in hm.iterate(&it) {
 			e.velocity = (e.position - e.old_position) / dt
-			e.velocity *= 0.9
+			e.velocity *= damping_per_substep
 		}
 	}
 
@@ -130,52 +89,57 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 		elements: ^ElementMap,
 		h: Handle,
 		dt: f32,
-		parent: ^Sim_Element = nil,
+		parent_position: Vec2 = 0,
+		parent_angle: f32 = 0,
 	) {
 		self, ok := hm.get(elements, h)
 		if !ok do return
 
-		parent := parent
-		if parent == nil {
-			dummy := Sim_Element {
-				angle = math.TAU / 4,
-			}
-			parent = &dummy
-		}
-
-		base_pos := parent.position
-		tip_pos := self.position
-		base_to_tip := base_pos - tip_pos
-		current_length := la.length(base_to_tip)
 		{ 	// constrain angle
-			target_angle := parent.angle + self.rest_angle
-			error := math.angle_diff(self.angle, target_angle)
-			// Apply Torque/Correction
-			s, c := math.sincos(self.angle)
-			dir := Vec2{-s, c} // tangent to the arc
-			// Calculate arc length error
-			arc_error := error * self.length
+			base_to_tip := self.position - parent_position
 
+			current_angle := math.atan2(base_to_tip.y, base_to_tip.x)
+			target_angle := parent_angle + self.rest_angle
+
+			error := angle_diff(current_angle, target_angle)
+			s, c := math.sincos(current_angle)
+			tangent_dir := Vec2{-s, c}
+
+			arc_error := error * self.length
 			alpha := self.joint_compliance / (dt * dt)
 			lambda := arc_error / (self.inv_mass + alpha)
 
-			self.position += dir * lambda * self.inv_mass
-			// Re-calculate angle based on the new tip position for next frame
-			new_axis := self.position - base_pos
-			self.angle = math.atan2(new_axis.y, new_axis.x)
+			self.position += tangent_dir * lambda * self.inv_mass
+
+			angle_diff :: proc "contextless" (a, b: f32) -> f32 {
+				diff := b - a
+				diff -= math.round(diff / math.TAU) * math.TAU
+				return diff
+			}
 		}
 		{ 	// constrain length
-			error := max(0, self.length - current_length)
-			s, c := math.sincos(parent.angle)
-			dir := Vec2{c, s}
+			base_to_tip := self.position - parent_position
+			current_length := la.length(base_to_tip)
+			error := self.length - current_length
+			dir: Vec2
+			if current_length > 0 {
+				dir = base_to_tip / current_length
+			} else { 	// Fallback for degenerate case
+				target_angle := parent_angle + self.rest_angle
+				s, c := math.sincos(target_angle)
+				dir = {c, s}
+			}
 			// Constraint is fully rigid
 			self.position += dir * error
 		}
 
+		base_to_tip := self.position - parent_position
+		final_angle := math.atan2(base_to_tip.y, base_to_tip.x)
+
 		it := self.first_child
 		for {
 			child := hm.get(elements, it) or_break
-			sim_solve_branch_constraints(elements, child.handle, dt, self)
+			sim_solve_branch_constraints(elements, child.handle, dt, self.position, final_angle)
 			it = child.right
 		}
 	}
@@ -220,9 +184,6 @@ Sim_Element :: struct {
 	position:                Vec2,
 	velocity:                Vec2,
 	rest_angle:              f32, // Relative to the parent's angle
-	old_angle:               f32,
-	angle:                   f32, // Angle in world space
-	angular_velocity:        f32,
 	inv_mass:                f32,
 	joint_compliance:        f32,
 	length:                  f32,
@@ -246,8 +207,6 @@ element_spawn :: proc(elements: ^ElementMap, e: ^Sim_Element, theta: f32 = 0, ma
 		right            = e.first_child, // link into the head of the sibling dll
 		position         = e.position,
 		rest_angle       = theta,
-		length           = 0.1, // for numerical stability
-		angle            = e.angle + theta,
 		inv_mass         = 1 / mass if mass != 0 else 0,
 		joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
 		growth_rate      = SIM_BASELINE_GROWTH_RATE,
@@ -278,6 +237,49 @@ element_strengthen :: proc(
 }
 element_dye :: proc(using self: ^Sim_Element, target: Color) {
 	self.target_color = target
+}
+
+
+sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, delta_time: f32) {
+	it := hm.iterator_make(&g_app_state.elements)
+	for element, h in hm.iterate(&it) {
+
+		if element.depth == SIM_MAX_DEPTH {
+			element.debug_state = .Petal
+		}
+
+		switch element.debug_state {
+		case .Bud:
+			if element.growth_rate <= SIM_END_GROWTH_RATE * 5 { 	// Only try to apply next state once growth slowed down sufficiently
+				// element_spawn(&g_app_state.elements, element)
+				// element.debug_state = .Stem // should spawn do this automatically?
+				if rand.float32() < 0.33 {
+					element_spawn(&g_app_state.elements, element)
+					element.debug_state = .Stem // should spawn do this automatically?
+				} else {
+					if rand.float32() < 0.95 {
+						element.debug_state = .Node
+					} else {
+						element.debug_state = .Petal
+					}
+				}
+			}
+		case .Node:
+			element.debug_state = .Bud
+			if rand.float32() < 0.88 do element_spawn(&g_app_state.elements, element, -math.τ / 9)
+			if rand.float32() < 0.77 do element_spawn(&g_app_state.elements, element, math.τ / 9)
+			element.debug_state = .Stem
+		case .Stem:
+			// Terminal State
+			// Todo: auxilary growth
+			element_dye(element, BROWN)
+			element.target_length += 0.001
+			element.target_thickness += 0.005
+		case .Petal:
+			// Terminal state
+			element_dye(element, PINK)
+		}
+	}
 }
 
 // Lerp that respects delta time
@@ -314,7 +316,6 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 			// Inject a dummy prev for the origin segment
 			if prev == nil {
 				dummy := Sim_Element {
-					angle     = math.TAU / 4,
 					thickness = e.thickness * 1.2,
 					color     = e.color,
 				}
@@ -331,8 +332,6 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 
 			when SIM_DEBUG_RENDERING {
 				rc_draw_circle(&rc, prev.position, 5, color = RED)
-				s, c := math.sincos(prev.angle)
-				rc_draw_line(&rc, prev.position, prev.position + {c, s} * 50, 2)
 				rc_draw_circle(&rc, e.position, 8, color = GREEN)
 			}
 
