@@ -1,0 +1,198 @@
+#+test
+package web_testing
+
+import "core:fmt"
+import "core:log"
+import "core:strings"
+import "core:testing"
+
+@(test)
+asm_test_simple :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/simple.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, AsmError.None)
+
+	expected := VM_Program {
+		blocks = {{{op = .Push, imm = {1.23, nil}}}},
+	}
+
+	expect_program(t, prog, expected)
+}
+
+@(test)
+asm_test_basic_ops :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/basic_ops.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, AsmError.None)
+
+	expected := VM_Program {
+		blocks = {
+			{
+				{op = .Push, imm = {i32(1), nil}},
+				{op = .Push, imm = {i32(2), nil}},
+				{op = .Pop},
+				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {i32(0), nil}},
+				{precondition = .Eq, op = .Pop},
+				{op = .Push, imm = {i32(1), nil}},
+				{op = .Push, imm = {i32(2), nil}},
+				{op = .Add},
+				{op = .Push, imm = {i32(3), nil}},
+				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {i32(0), nil}},
+				{precondition = .Eq, op = .Add},
+				{op = .Push, imm = {i32(6), nil}},
+				{op = .Subtract},
+				{op = .Push, imm = {i32(0), nil}},
+				{precondition = .Eq, op = .Rand},
+				{op = .Pop},
+				{op = .Push, imm = {i32(3), nil}},
+				{op = .Push, imm = {i32(4), nil}},
+				{op = .Push, imm = {i32(1000), nil}},
+				{op = .Push, imm = {f32(0.5), nil}},
+				{op = .Multiply},
+				{op = .Push, imm = {i32(1000), nil}},
+				{precondition = .Gt, op = .Multiply},
+				{op = .Push, imm = {i32(3), nil}},
+				{op = .Divide},
+			},
+		},
+	}
+	expect_program(t, prog, expected)
+}
+
+@(test)
+asm_test_push_then_pop :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/push_then_pop.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, AsmError.None)
+	expected := VM_Program {
+		blocks = {
+			{
+				{op = .Push, imm = {i32(123), nil}},
+				{op = .Pop},
+				{op = .Push, imm = {i32(456), nil}},
+				{op = .Push, imm = {i32(1), nil}},
+				{op = .Push, imm = {i32(1), nil}},
+				{precondition = .Eq, op = .Pop},
+			},
+		},
+	}
+	expect_program(t, prog, expected)
+}
+
+@(test)
+asm_test_push_literals :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/push_literals.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, AsmError.None)
+	expected := VM_Program {
+		blocks = {
+			{
+				{op = .Push, imm = {f32(0.1), nil}},
+				{op = .Push, imm = {i32(1234), nil}},
+				{op = .Push, imm = {i32(-1234), nil}},
+				{op = .Push, imm = {f32(0.1), nil}},
+				{op = .Push, imm = {f32(-0.119999997), nil}},
+				{op = .Push, imm = {i32(1), nil}},
+				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {true, nil}},
+				{op = .Push, imm = {false, nil}},
+				{op = .Push, imm = {Color{255, 24, 24, 24}, nil}},
+				{op = .Push, imm = {Color{255, 88, 24, 40}, nil}},
+				{op = .Push, imm = {VM_Label(0), nil}},
+			},
+		},
+	}
+	expect_program(t, prog, expected)
+}
+
+@(test)
+asm_test_push_with_precond :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/push_with_precond.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, AsmError.None)
+	expected := VM_Program {
+		blocks = {
+			{
+				{op = .Push, imm = {i32(100), nil}},
+				{op = .Push, imm = {i32(200), nil}},
+				{precondition = .Gt, op = .Push, imm = {i32(1001), i32(1234)}},
+			},
+		},
+	}
+	expect_program(t, prog, expected)
+}
+
+
+dump_program :: proc(p: VM_Program) {
+	sb := strings.builder_make()
+	defer strings.builder_destroy(&sb)
+	fmt.sbprintln(&sb)
+	fmt.sbprintln(&sb, "// Expected Program Output")
+	fmt.sbprintln(&sb, "expected := VM_Program {")
+	fmt.sbprintln(&sb, "    blocks = {")
+	for block, i in p.blocks {
+		fmt.sbprintln(&sb, "        {")
+		for inst in block {
+			fmt.sbprint(&sb, "        {")
+			if inst.precondition != .None {
+				fmt.sbprintf(&sb, " precondition = .%v, ", inst.precondition)
+			}
+			fmt.sbprintf(&sb, " op = .%v, ", inst.op)
+			if inst.imm[0] != nil || inst.imm[1] != nil {
+				fmt.sbprint(&sb, " imm = { ")
+				for val in inst.imm {
+					print_vm_value(&sb, val)
+				}
+				fmt.sbprint(&sb, "} ")
+			}
+			fmt.sbprintln(&sb, "},")
+		}
+		fmt.sbprintln(&sb, "        },")
+	}
+	fmt.sbprintln(&sb, "    }")
+	fmt.sbprintln(&sb, "}")
+	out := strings.to_string(sb)
+	log.info(out)
+
+	print_vm_value :: proc(sb: ^strings.Builder, val: VM_Value) {
+		switch v in val {
+		case nil:
+			fmt.sbprint(sb, "nil, ")
+		case Color:
+			fmt.sbprint(sb, "Color { ")
+			for channel in v {
+				fmt.sbprint(sb, channel)
+				fmt.sbprint(sb, ", ")
+			}
+			fmt.sbprint(sb, "}, ")
+		case f32:
+			fmt.sbprintf(sb, "f32(%v), ", v)
+		case i32:
+			fmt.sbprintf(sb, "i32(%v), ", v)
+		case bool:
+			fmt.sbprintf(sb, "%v, ", v)
+		case VM_Label:
+			fmt.sbprintf(sb, "VM_Label(%v), ", v)
+		}
+	}
+}
+
+expect_program :: proc(t: ^testing.T, program, expected: VM_Program) {
+	testing.expect(
+		t,
+		len(program.blocks) == len(expected.blocks),
+		"Program generated with incorrect number of blocks",
+	)
+	for i in 0 ..< len(expected.blocks) {
+		p := program.blocks[i]
+		e := expected.blocks[i]
+		testing.expect_value(t, len(p), len(e))
+		for j in 0 ..< len(e) {
+			inst := p[j]
+			einst := e[j]
+			testing.expect_value(t, inst, einst)
+		}
+	}
+}

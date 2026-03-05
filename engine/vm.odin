@@ -5,10 +5,10 @@ import sm "core:container/small_array"
 import "core:log"
 import "core:math/rand"
 
-// Q: Should these be allowed to grow by allocating?
 VM :: struct {
 	stack: sm.Small_Array(64, VM_Value),
-	pc:    i32,
+	call_stack: sm.Small_Array(16, VM_BlockPointer),
+	active_block: VM_BlockPointer,
 }
 
 vm_push_value :: #force_inline proc "contextless" (vm: ^VM, v: VM_Value) -> VM_Error {
@@ -67,7 +67,14 @@ VM_Op :: enum u8 {
 	Negate,
 	Jump,
 	Jump_If_Falsy,
-	Halt,
+}
+
+VM_Program :: struct {
+	blocks: []VM_Block
+}
+VM_BlockPointer :: struct {
+	idx: VM_Label,
+	head: VM_Block,
 }
 
 VM_Instruction :: struct {
@@ -82,32 +89,126 @@ VM_Value :: union {
 	Color,
 	VM_Label,
 }
-VM_Label :: distinct i32 // TODO: Sort out labels
+VM_Label :: distinct u8 // TODO: Sort out labels
 VM_Error :: enum {
 	None = 0,
 	Stack_Overflow,
 	Stack_Underflow,
 	Comparison_Faliure,
-
 	Argument_Mismatch,
 	Instruction_Arity_Mismatch,
 }
 
 VM_Block :: []VM_Instruction
 
-vm_run :: proc(vm: ^VM, instrs: [^]VM_Instruction) -> (err: VM_Error) {
+vm_run :: proc(vm: ^VM, program: VM_Program) -> (err: VM_Error) {
+	vm.active_block = {idx = 0, head = program.blocks[0]}
 	for {
-		halt := vm_exec(vm, instrs) or_return
-		if halt do break
+		if inst, ok := vm_fetch(vm); ok {
+			vm_exec(vm, inst) or_return
+		} else {
+			vm.active_block = sm.pop_back_safe(&vm.call_stack) or_break
+		}
 	}
 	return .None
 }
 
-vm_exec :: proc(vm: ^VM, instrs: [^]VM_Instruction) -> (halt: bool, err: VM_Error) {
-	// Fetch
-	inst := instrs[vm.pc]
+vm_fetch :: proc(vm: ^VM) -> (VM_Instruction, bool) {
+		if len(vm.active_block.head) == 0 {
+			return {}, false
+		} else {
+			return vm.active_block.head[0], true
+		}
+	}
 
-	vm_evaluate_precondition :: proc(cond: VM_Precondition, a, b: VM_Value) -> (bool, VM_Error) {
+vm_exec :: proc(vm: ^VM, inst: VM_Instruction) -> (err: VM_Error) {
+
+	precond_success: bool = true
+	if inst.precondition != .None {
+		vm_ensure_arg_count(vm, 2) or_return
+		a := vm_take_arg(vm) // [HEAD]
+		b := vm_take_arg(vm) // [HEAD - 1]
+
+		{ 	// Implicit conversion special case
+			_, a_is_float := a.(f32)
+			bb, b_is_int := b.(i32)
+			if a_is_float && b_is_int {
+				b = f32(bb)
+			}
+		}
+		precond_success, err := vm_evaluate_precondition(inst.precondition, a, b)
+		if err != .None {
+			#partial switch err {
+			case .Argument_Mismatch:
+				log.error("Types are not comparable:", a, "and,", b)
+			case .Comparison_Faliure:
+				log.error(a, "is not totally ordered.")
+			}
+			return err
+		}
+
+	}
+
+	switch inst.op {
+	case .Rand:
+		if precond_success {
+			vm_push_value(vm, rand.float32()) or_return
+		}
+	case .Push:
+		imm := inst.imm[0] if precond_success else inst.imm[1]
+		vm_push_value(vm, imm) or_return
+	case .Pop:
+		if precond_success {
+			if _, ok := sm.pop_back_safe(&vm.stack); !ok {
+				return .Stack_Underflow
+			}
+		}
+	case .Add:
+		if precond_success do vm_add(vm) or_return
+	case .Subtract:
+		if precond_success do vm_subtract(vm) or_return
+	case .Multiply:
+		if precond_success do vm_multiply(vm) or_return
+	case .Divide:
+		if precond_success do vm_divide(vm) or_return
+	case .Negate:
+		if precond_success do vm_negate(vm) or_return
+	case .Jump: // TODO: This should really be a call Op not jump
+		imm := inst.imm[0] if precond_success else inst.imm[1]
+		if label, ok := imm.(VM_Label); ok {
+			if !sm.push_back(&vm.call_stack, vm.active_block) {
+				log.error("Block call depth limit exceeded")
+			}
+			vm.active_block = { idx = label }
+			return .None // To avoid incrementing PC
+		} else {
+			return .Argument_Mismatch
+		}
+	case .Jump_If_Falsy:
+		vm_ensure_arg_count(vm, 1) or_return
+		pred := vm_take_arg(vm)
+
+		imm := inst.imm[0] if precond_success else inst.imm[1]
+		if label, ok := imm.(VM_Label); ok {
+			should_jump := vm_is_falsy(pred) or_return
+			if should_jump {
+				if !sm.push_back(&vm.call_stack, vm.active_block) {
+					log.error("Block call depth limit exceeded")
+				}
+				vm.active_block = { idx = label }
+				return .None // To avoid incrementing PC
+			}
+		} else {
+			return .Argument_Mismatch
+		}
+	}
+
+	vm.active_block.head = vm.active_block.head[1:]
+	return .None
+
+}
+
+vm_evaluate_precondition :: proc(cond: VM_Precondition, a, b: VM_Value) -> (bool, VM_Error) {
 		#partial switch cond {
 		case .Eq:
 			switch t1 in a {
@@ -246,89 +347,6 @@ vm_exec :: proc(vm: ^VM, instrs: [^]VM_Instruction) -> (halt: bool, err: VM_Erro
 		}
 		unreachable()
 	}
-
-	precond_success: bool = true
-	if inst.precondition != .None {
-		vm_ensure_arg_count(vm, 2) or_return
-		a := vm_take_arg(vm) // [HEAD]
-		b := vm_take_arg(vm) // [HEAD - 1]
-
-		{ 	// Implicit conversion special case
-			_, a_is_float := a.(f32)
-			bb, b_is_int := b.(i32)
-			if a_is_float && b_is_int {
-				b = f32(bb)
-			}
-		}
-		precond_success, err := vm_evaluate_precondition(inst.precondition, a, b)
-		if err != .None {
-			#partial switch err {
-			case .Argument_Mismatch:
-				log.error("Types are not comparable:", a, "and,", b)
-			case .Comparison_Faliure:
-				log.error(a, "is not totally ordered.")
-			}
-			return false, err
-		}
-
-	}
-
-	switch inst.op {
-	case .Rand:
-		if precond_success {
-			vm_push_value(vm, rand.float32()) or_return
-		}
-	case .Push:
-		imm := inst.imm[0] if precond_success else inst.imm[1]
-		vm_push_value(vm, imm) or_return
-	case .Pop:
-		if precond_success {
-			if _, ok := sm.pop_back_safe(&vm.stack); !ok {
-				return false, .Stack_Underflow
-			}
-		}
-	case .Add:
-		if precond_success do vm_add(vm) or_return
-	case .Subtract:
-		if precond_success do vm_subtract(vm) or_return
-	case .Multiply:
-		if precond_success do vm_multiply(vm) or_return
-	case .Divide:
-		if precond_success do vm_divide(vm) or_return
-	case .Negate:
-		if precond_success do vm_negate(vm) or_return
-	case .Jump:
-		// TODO: Label jumping
-		imm := inst.imm[0] if precond_success else inst.imm[1]
-		if addr, ok := imm.(i32); ok {
-			vm.pc = addr
-			return false, .None // To avoid incrementing PC
-		} else {
-			return false, .Argument_Mismatch
-		}
-	case .Jump_If_Falsy:
-		// TODO: Label jumping
-		vm_ensure_arg_count(vm, 1) or_return
-		pred := vm_take_arg(vm)
-
-		imm := inst.imm[0] if precond_success else inst.imm[1]
-		if addr, ok := imm.(i32); ok {
-			should_jump := vm_is_falsy(pred) or_return
-			if should_jump {
-				vm.pc = addr
-				return false, .None // To avoid incrementing PC
-			}
-		} else {
-			return false, .Argument_Mismatch
-		}
-	case .Halt:
-		return true, .None
-	}
-
-	vm.pc += 1
-	return false, .None
-
-}
 
 vm_add :: proc(vm: ^VM) -> VM_Error {
 	vm_ensure_arg_count(vm, 2) or_return

@@ -43,6 +43,11 @@ to_color :: proc {
 	fcolor_to_color,
 }
 
+
+rgba_u32_to_color :: proc(c: u32) -> Color {
+	return transmute(Color)c
+}
+
 fcolor_to_color :: proc(c: FColor) -> Color {
 	c := c
 	c *= 255
