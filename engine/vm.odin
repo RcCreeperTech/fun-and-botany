@@ -66,7 +66,7 @@ VM_Op :: enum u8 {
 	Divide,
 	Negate,
 	Jump,
-	Jump_If_Falsy,
+	Call,
 }
 
 VM_Program :: struct {
@@ -89,7 +89,7 @@ VM_Value :: union {
 	Color,
 	VM_Label,
 }
-VM_Label :: distinct u8 // TODO: Sort out labels
+VM_Label :: distinct u8
 VM_Error :: enum {
 	None = 0,
 	Stack_Overflow,
@@ -105,7 +105,7 @@ vm_run :: proc(vm: ^VM, program: VM_Program) -> (err: VM_Error) {
 	vm.active_block = {idx = 0, head = program.blocks[0]}
 	for {
 		if inst, ok := vm_fetch(vm); ok {
-			vm_exec(vm, inst) or_return
+			vm_exec(vm, inst, program) or_return
 		} else {
 			vm.active_block = sm.pop_back_safe(&vm.call_stack) or_break
 		}
@@ -121,7 +121,7 @@ vm_fetch :: proc(vm: ^VM) -> (VM_Instruction, bool) {
 		}
 	}
 
-vm_exec :: proc(vm: ^VM, inst: VM_Instruction) -> (err: VM_Error) {
+vm_exec :: proc(vm: ^VM, inst: VM_Instruction, program: VM_Program) -> (err: VM_Error) {
 
 	precond_success: bool = true
 	if inst.precondition != .None {
@@ -173,31 +173,22 @@ vm_exec :: proc(vm: ^VM, inst: VM_Instruction) -> (err: VM_Error) {
 		if precond_success do vm_divide(vm) or_return
 	case .Negate:
 		if precond_success do vm_negate(vm) or_return
-	case .Jump: // TODO: This should really be a call Op not jump
+	case .Jump:
+		imm := inst.imm[0] if precond_success else inst.imm[1]
+		if label, ok := imm.(VM_Label); ok {
+			vm.active_block = { idx = label, head = program.blocks[label] }
+			return .None // To avoid incrementing PC
+		} else {
+			return .Argument_Mismatch
+		}
+	case .Call:
 		imm := inst.imm[0] if precond_success else inst.imm[1]
 		if label, ok := imm.(VM_Label); ok {
 			if !sm.push_back(&vm.call_stack, vm.active_block) {
 				log.error("Block call depth limit exceeded")
 			}
-			vm.active_block = { idx = label }
+			vm.active_block = { idx = label, head = program.blocks[label] }
 			return .None // To avoid incrementing PC
-		} else {
-			return .Argument_Mismatch
-		}
-	case .Jump_If_Falsy:
-		vm_ensure_arg_count(vm, 1) or_return
-		pred := vm_take_arg(vm)
-
-		imm := inst.imm[0] if precond_success else inst.imm[1]
-		if label, ok := imm.(VM_Label); ok {
-			should_jump := vm_is_falsy(pred) or_return
-			if should_jump {
-				if !sm.push_back(&vm.call_stack, vm.active_block) {
-					log.error("Block call depth limit exceeded")
-				}
-				vm.active_block = { idx = label }
-				return .None // To avoid incrementing PC
-			}
 		} else {
 			return .Argument_Mismatch
 		}

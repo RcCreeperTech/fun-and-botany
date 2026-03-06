@@ -4,7 +4,6 @@ package web_testing
 import sm "core:container/small_array"
 import "core:testing"
 
-// FIXME: Port these once we have an assembler
 @(test)
 vm_test_push_pop :: proc(t: ^testing.T) {
 
@@ -92,14 +91,18 @@ vm_test_sub_float :: proc(t: ^testing.T) {
 }
 
 // TODO: In order to restore this test, A distinction must be made between jump and call
-// This requires more work in the VM and compiler
-// @(test)
-// vm_test_overflow :: proc(t: ^testing.T) {
-// 	program: []VM_Instruction = {
-// 		{.Push, f32(0xCAFE_BABE)},
-// 		{.Jump, i32(0)}
-// 	}
-// 	vm: VM
-// 	err := vm_exec(&vm, raw_data(program))
-// 	testing.expect_value(t, err, VM_Error.Stack_Overflow)
-// }
+@(test)
+vm_test_overflow :: proc(t: ^testing.T) {
+
+	program, asm_err := asm_assemble(`
+		Main:
+			push 123
+			jump :Main
+		end
+	`)
+	testing.expect(t, asm_err == AsmError.None)
+
+	vm: VM
+	err := vm_run(&vm, program)
+	testing.expect_value(t, err, VM_Error.Stack_Overflow)
+}

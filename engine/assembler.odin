@@ -1,5 +1,6 @@
 package web_testing
 
+import "core:log"
 import "core:fmt"
 import "core:strconv"
 
@@ -68,6 +69,9 @@ ParseError :: enum {
 	Unexpected_Top_Level_Keyword,
 }
 
+// TODO: Error reporting needs to improve a lot. Currently the error value is
+// just bubbled out to the caller of assemble but no context for the error is
+// collected.
 asm_assemble :: proc(
 	source: string,
 	allocator := context.allocator,
@@ -86,11 +90,17 @@ asm_assemble :: proc(
 	}
 	make_jump_table :: proc(allocator := context.allocator) -> (jt: JumpTable) {
 		jt.table = make(map[string]VM_Label, allocator)
+		jt.table["Main"] = 0 // TODO: Add tagging to remove this special case
+		jt.gid = 1
 		return
 	}
 	// Tries to find the id associated with a jump label. Will automatically
 	// create a new id if the label is not already in the table.
 	jt_lookup_label :: proc(jt: ^JumpTable, label: string) -> VM_Label {
+		// This is the easiest way to make sure that labels and blocks refer to the same thing
+		label := label
+		if label[0] == ':' do label = label[1:]
+
 		if id, ok := jt.table[label]; ok {
 			return id
 		} else {
@@ -103,11 +113,19 @@ asm_assemble :: proc(
 	blocks := make(BlockMap) // TODO: Arena?
 	jump_table := make_jump_table() // TODO: cleanup
 
-	parse(&s, &blocks, &jump_table)
-	program.blocks = make([]VM_Block, 1, allocator)
-	if main_block, ok := blocks["Main"]; ok {
-		program.blocks[0] = main_block[:]
-	} else {
+	parse(&s, &blocks, &jump_table) or_return
+
+	program.blocks = make([]VM_Block, len(blocks), allocator)
+	found_main := false
+	for name, block in blocks {
+		block_id := jt_lookup_label(&jump_table, name)
+		program.blocks[block_id] = block[:]
+		if name == "Main" {
+			found_main = true
+		}
+	}
+
+	if !found_main {
 		return {}, AsmError.No_Entrypoint_Found
 	}
 
@@ -143,8 +161,8 @@ asm_assemble :: proc(
 		) {
 			block := make([dynamic]VM_Instruction) // TODO: Arena
 
-			expect(s, Token_Colon) or_return
-			expect(s, Token_End_Of_Statement) or_return
+			_ = expect(s, Token_Colon) or_return
+			_ = expect(s, Token_End_Of_Statement) or_return
 
 			loop: for {
 				if tok, ok := scanner_next(s); ok {
@@ -152,7 +170,7 @@ asm_assemble :: proc(
 					case Token_Keyword:
 						#partial switch k {
 						case .End:
-							expect(s, Token_End_Of_Statement)
+							_ = expect(s, Token_End_Of_Statement) or_return
 							break loop
 						case .Const:
 							unimplemented("What to do here")
@@ -193,10 +211,10 @@ asm_assemble :: proc(
 				if tok, ok := scanner_peek(s); ok {
 					#partial switch k in tok.kind {
 					case Token_Slash:
-						expect(s, Token_Slash)
+						_ = expect(s, Token_Slash) or_return
 						inst.precondition = parse_precondition(s) or_return
 						inst.imm[0] = parse_literal(s, jt) or_return
-						expect(s, Token_Comma)
+						_ = expect(s, Token_Comma) or_return
 						inst.imm[1] = parse_literal(s, jt) or_return
 					case:
 						value := parse_literal(s, jt) or_return
@@ -206,9 +224,27 @@ asm_assemble :: proc(
 					return {}, .Unexpected_End_Of_File
 				}
 
-				expect(s, Token_End_Of_Statement)
+				_ = expect(s, Token_End_Of_Statement) or_return
 			case .Jump:
-				unimplemented()
+				inst.op = .Jump
+
+				if tok, ok := scanner_peek(s); ok {
+					#partial switch k in tok.kind {
+					case Token_Slash:
+						_ = expect(s, Token_Slash) or_return
+						inst.precondition = parse_precondition(s) or_return
+						inst.imm[0] = parse_literal(s, jt) or_return
+						_ = expect(s, Token_Comma) or_return
+						inst.imm[1] = parse_literal(s, jt) or_return
+					case:
+						value := parse_literal(s, jt) or_return
+						inst.imm[0] = value
+					}
+				} else {
+					return {}, .Unexpected_End_Of_File
+				}
+
+				_ = expect(s, Token_End_Of_Statement) or_return
 			case .Pop:
 				inst.op = .Pop
 				parse_basic_instruction(s, &inst) or_return
@@ -241,7 +277,7 @@ asm_assemble :: proc(
 				#partial switch k in tok.kind {
 				case Token_Slash:
 					inst.precondition = parse_precondition(s) or_return
-					expect(s, Token_End_Of_Statement)
+					_ = expect(s, Token_End_Of_Statement) or_return
 				case Token_End_Of_Statement:
 				case:
 					return .Unexpected_Token
@@ -298,6 +334,7 @@ asm_assemble :: proc(
 				return .Unexpected_Token
 			}
 		}
+		@(require_results)
 		expect :: proc(s: ^Scanner, $T: typeid) -> (Token, ParseError) {
 			if tok, ok := scanner_next(s); ok {
 				if _, ok := tok.kind.(T); ok {
@@ -459,7 +496,7 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 				return end_token(s, next, Token_Label{}), true
 			} else {
 				switch c {
-				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
+				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', ':':
 					advance(s)
 				case:
 					return end_token(s, next, Token_Label{}), true

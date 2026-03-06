@@ -124,6 +124,26 @@ asm_test_push_with_precond :: proc(t: ^testing.T) {
 	expect_program(t, prog, expected)
 }
 
+@(test)
+asm_test_jump_around :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/jump_around.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, AsmError.None)
+	expected := VM_Program {
+		blocks = {
+			{
+				{op = .Push, imm = {i32(1), nil}},
+				{op = .Push, imm = {i32(0), nil}},
+				{precondition = .Eq, op = .Jump, imm = {VM_Label(1), VM_Label(2)}},
+			},
+			{{op = .Push, imm = {i32(67), nil}}},
+			{{op = .Push, imm = {i32(123), nil}}, {op = .Jump, imm = {VM_Label(3), nil}}},
+			{{op = .Jump, imm = {VM_Label(1), nil}}},
+		},
+	}
+	expect_program(t, prog, expected)
+}
+
 
 dump_program :: proc(p: VM_Program) {
 	sb := strings.builder_make()
@@ -135,7 +155,7 @@ dump_program :: proc(p: VM_Program) {
 	for block, i in p.blocks {
 		fmt.sbprintln(&sb, "        {")
 		for inst in block {
-			fmt.sbprint(&sb, "        {")
+			fmt.sbprint(&sb, "            {")
 			if inst.precondition != .None {
 				fmt.sbprintf(&sb, " precondition = .%v, ", inst.precondition)
 			}
