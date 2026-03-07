@@ -10,7 +10,7 @@ import "core:testing"
 asm_test_simple :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/simple.asm")
 	prog, err := asm_assemble(source)
-	testing.expect_value(t, err, AsmError.None)
+	testing.expect_value(t, err, nil)
 
 	expected := VM_Program {
 		blocks = {{{op = .Push, imm = {1.23, nil}}}},
@@ -20,10 +20,30 @@ asm_test_simple :: proc(t: ^testing.T) {
 }
 
 @(test)
+asm_test_get_set :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/get_set.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, nil)
+
+	dump_program(prog)
+	// expect_program(t, prog, expected)
+}
+
+@(test)
+asm_test_get_set_failing :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/get_set_failing.asm")
+	prog, err := asm_assemble(source)
+	testing.expect_value(t, err, ProgramError.Unknown_Parameter)
+
+	dump_program(prog)
+	// expect_program(t, prog, expected)
+}
+
+@(test)
 asm_test_basic_ops :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/basic_ops.asm")
 	prog, err := asm_assemble(source)
-	testing.expect_value(t, err, AsmError.None)
+	testing.expect_value(t, err, nil)
 
 	expected := VM_Program {
 		blocks = {
@@ -65,7 +85,7 @@ asm_test_basic_ops :: proc(t: ^testing.T) {
 asm_test_push_then_pop :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/push_then_pop.asm")
 	prog, err := asm_assemble(source)
-	testing.expect_value(t, err, AsmError.None)
+	testing.expect_value(t, err, nil)
 	expected := VM_Program {
 		blocks = {
 			{
@@ -85,7 +105,7 @@ asm_test_push_then_pop :: proc(t: ^testing.T) {
 asm_test_push_literals :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/push_literals.asm")
 	prog, err := asm_assemble(source)
-	testing.expect_value(t, err, AsmError.None)
+	testing.expect_value(t, err, nil)
 	expected := VM_Program {
 		blocks = {
 			{
@@ -111,7 +131,7 @@ asm_test_push_literals :: proc(t: ^testing.T) {
 asm_test_push_with_precond :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/push_with_precond.asm")
 	prog, err := asm_assemble(source)
-	testing.expect_value(t, err, AsmError.None)
+	testing.expect_value(t, err, nil)
 	expected := VM_Program {
 		blocks = {
 			{
@@ -128,7 +148,7 @@ asm_test_push_with_precond :: proc(t: ^testing.T) {
 asm_test_jump_around :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/jump_around.asm")
 	prog, err := asm_assemble(source)
-	testing.expect_value(t, err, AsmError.None)
+	testing.expect_value(t, err, nil)
 	expected := VM_Program {
 		blocks = {
 			{
@@ -195,6 +215,8 @@ dump_program :: proc(p: VM_Program) {
 			fmt.sbprintf(sb, "%v, ", v)
 		case VM_Label:
 			fmt.sbprintf(sb, "VM_Label(%v), ", v)
+		case VM_Param:
+			fmt.sbprintf(sb, "VM_Param.%v, ", v)
 		}
 	}
 }

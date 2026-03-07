@@ -14,7 +14,7 @@ vm_test_push_pop :: proc(t: ^testing.T) {
 			pop
 		end
 	`)
-	testing.expect(t, asm_err == AsmError.None)
+	testing.expect(t, asm_err == nil)
 
 	vm: VM
 	err := vm_run(&vm, program)
@@ -31,7 +31,7 @@ vm_test_underflow :: proc(t: ^testing.T) {
 			pop
 		end
 	`)
-	testing.expect(t, asm_err == AsmError.None)
+	testing.expect(t, asm_err == nil)
 
 	vm: VM
 	err := vm_run(&vm, program)
@@ -47,7 +47,7 @@ vm_test_add :: proc(t: ^testing.T) {
 			add
 		end
 	`)
-	testing.expect(t, asm_err == AsmError.None)
+	testing.expect(t, asm_err == nil)
 
 	vm: VM
 	err := vm_run(&vm, program)
@@ -65,7 +65,7 @@ vm_test_bad_add :: proc(t: ^testing.T) {
 			add
 		end
 	`)
-	testing.expect(t, asm_err == AsmError.None)
+	testing.expect(t, asm_err == nil)
 
 	vm: VM
 	err := vm_run(&vm, program)
@@ -81,7 +81,7 @@ vm_test_sub_float :: proc(t: ^testing.T) {
 			sub
 		end
 	`)
-	testing.expect(t, asm_err == AsmError.None)
+	testing.expect(t, asm_err == nil)
 
 	vm: VM
 	err := vm_run(&vm, program)
@@ -100,7 +100,7 @@ vm_test_overflow :: proc(t: ^testing.T) {
 			jump :Main
 		end
 	`)
-	testing.expect(t, asm_err == AsmError.None)
+	testing.expect(t, asm_err == nil)
 
 	vm: VM
 	err := vm_run(&vm, program)

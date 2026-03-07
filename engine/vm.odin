@@ -6,9 +6,10 @@ import "core:log"
 import "core:math/rand"
 
 VM :: struct {
-	stack: sm.Small_Array(64, VM_Value),
-	call_stack: sm.Small_Array(16, VM_BlockPointer),
+	stack:        sm.Small_Array(64, VM_Value),
+	call_stack:   sm.Small_Array(16, VM_BlockPointer),
 	active_block: VM_BlockPointer,
+	entrypoint:   VM_Label,
 }
 
 vm_push_value :: #force_inline proc "contextless" (vm: ^VM, v: VM_Value) -> VM_Error {
@@ -67,14 +68,29 @@ VM_Op :: enum u8 {
 	Negate,
 	Jump,
 	Call,
+	GetParam,
+	SetParam,
 }
 
+VM_Block :: []VM_Instruction
 VM_Program :: struct {
-	blocks: []VM_Block
+	blocks: []VM_Block,
 }
 VM_BlockPointer :: struct {
-	idx: VM_Label,
+	idx:  VM_Label,
 	head: VM_Block,
+}
+
+VM_Error :: enum {
+	None = 0,
+	Stack_Overflow,
+	Stack_Underflow,
+	Comparison_Faliure,
+	Argument_Mismatch,
+	Instruction_Arity_Mismatch,
+	Unknown_Parameter_Access,
+	Parameter_Type_Mistmatch,
+	Readonly_Parameter,
 }
 
 VM_Instruction :: struct {
@@ -88,21 +104,87 @@ VM_Value :: union {
 	bool,
 	Color,
 	VM_Label,
+	VM_Param,
 }
+
 VM_Label :: distinct u8
-VM_Error :: enum {
-	None = 0,
-	Stack_Overflow,
-	Stack_Underflow,
-	Comparison_Faliure,
-	Argument_Mismatch,
-	Instruction_Arity_Mismatch,
+
+VM_Param :: enum u8 {
+	State,
+	Thickness, // TODO: Parent variant
+	Length, // TODO: Parent variant
+	Color, // TODO: Parent variant
+	Growth_Rate,
+	Joint_Compliance,
+}
+vm_get_param :: proc(
+	vm: ^VM,
+	element: ^Sim_Element,
+	param: VM_Param,
+) -> (
+	v: VM_Value,
+	err: VM_Error,
+) {
+	switch param {
+	case .State:
+		return vm.entrypoint, .None
+	case .Thickness:
+		return element.thickness, .None
+	case .Length:
+		return element.length, .None
+	case .Color:
+		return element.color, .None
+	case .Growth_Rate:
+		return element.growth_rate, .None
+	case .Joint_Compliance:
+		return element.joint_compliance, .None
+	}
+	return nil, .Unknown_Parameter_Access
 }
 
-VM_Block :: []VM_Instruction
+vm_set_param :: proc(
+	vm: ^VM,
+	element: ^Sim_Element,
+	param: VM_Param,
+	value: VM_Value,
+) -> (
+	err: VM_Error,
+) {
+	switch param {
+	case .State:
+		v, ok := value.(VM_Label)
+		if !ok do return .Parameter_Type_Mistmatch
+        vm.entrypoint = v
+	case .Thickness:
+		v, ok := value.(f32)
+		if !ok do return .Parameter_Type_Mistmatch
+        element.target_thickness = v
+	case .Length:
+		v, ok := value.(f32)
+		if !ok do return .Parameter_Type_Mistmatch
+        element.target_length = v
+	case .Color:
+		v, ok := value.(Color)
+		if !ok do return .Parameter_Type_Mistmatch
+        element.target_color = v
+	case .Growth_Rate:
+		return .Readonly_Parameter
+	case .Joint_Compliance:
+		v, ok := value.(f32)
+		if !ok do return .Parameter_Type_Mistmatch
+        element.joint_compliance = v
+	}
+	return .None
+}
 
-vm_run :: proc(vm: ^VM, program: VM_Program) -> (err: VM_Error) {
-	vm.active_block = {idx = 0, head = program.blocks[0]}
+
+vm_run :: proc(vm: ^VM, program: VM_Program, element: ^Sim_Element = nil) -> (err: VM_Error) {
+	sm.clear(&vm.stack)
+	sm.clear(&vm.call_stack)
+	vm.active_block = {
+		idx  = vm.entrypoint,
+		head = program.blocks[vm.entrypoint],
+	}
 	for {
 		if inst, ok := vm_fetch(vm); ok {
 			vm_exec(vm, inst, program) or_return
@@ -114,14 +196,21 @@ vm_run :: proc(vm: ^VM, program: VM_Program) -> (err: VM_Error) {
 }
 
 vm_fetch :: proc(vm: ^VM) -> (VM_Instruction, bool) {
-		if len(vm.active_block.head) == 0 {
-			return {}, false
-		} else {
-			return vm.active_block.head[0], true
-		}
+	if len(vm.active_block.head) == 0 {
+		return {}, false
+	} else {
+		return vm.active_block.head[0], true
 	}
+}
 
-vm_exec :: proc(vm: ^VM, inst: VM_Instruction, program: VM_Program) -> (err: VM_Error) {
+vm_exec :: proc(
+	vm: ^VM,
+	inst: VM_Instruction,
+	program: VM_Program,
+	element: ^Sim_Element = nil,
+) -> (
+	err: VM_Error,
+) {
 
 	precond_success: bool = true
 	if inst.precondition != .None {
@@ -150,6 +239,24 @@ vm_exec :: proc(vm: ^VM, inst: VM_Instruction, program: VM_Program) -> (err: VM_
 	}
 
 	switch inst.op {
+	case .GetParam:
+		if element != nil && precond_success {
+			param, ok := inst.imm[0].(VM_Param)
+			if !ok do return .Argument_Mismatch
+
+			val := vm_get_param(vm, element, param) or_return
+			vm_push_value(vm, val) or_return
+		}
+	case .SetParam:
+		if element != nil && precond_success {
+			vm_ensure_arg_count(vm, 1) or_return
+
+			value := vm_take_arg(vm)
+			param, ok := inst.imm[0].(VM_Param)
+			if !ok do return .Argument_Mismatch
+
+			vm_set_param(vm, element, param, value) or_return
+		}
 	case .Rand:
 		if precond_success {
 			vm_push_value(vm, rand.float32()) or_return
@@ -176,7 +283,10 @@ vm_exec :: proc(vm: ^VM, inst: VM_Instruction, program: VM_Program) -> (err: VM_
 	case .Jump:
 		imm := inst.imm[0] if precond_success else inst.imm[1]
 		if label, ok := imm.(VM_Label); ok {
-			vm.active_block = { idx = label, head = program.blocks[label] }
+			vm.active_block = {
+				idx  = label,
+				head = program.blocks[label],
+			}
 			return .None // To avoid incrementing PC
 		} else {
 			return .Argument_Mismatch
@@ -187,7 +297,10 @@ vm_exec :: proc(vm: ^VM, inst: VM_Instruction, program: VM_Program) -> (err: VM_
 			if !sm.push_back(&vm.call_stack, vm.active_block) {
 				log.error("Block call depth limit exceeded")
 			}
-			vm.active_block = { idx = label, head = program.blocks[label] }
+			vm.active_block = {
+				idx  = label,
+				head = program.blocks[label],
+			}
 			return .None // To avoid incrementing PC
 		} else {
 			return .Argument_Mismatch
@@ -200,144 +313,150 @@ vm_exec :: proc(vm: ^VM, inst: VM_Instruction, program: VM_Program) -> (err: VM_
 }
 
 vm_evaluate_precondition :: proc(cond: VM_Precondition, a, b: VM_Value) -> (bool, VM_Error) {
-		#partial switch cond {
-		case .Eq:
-			switch t1 in a {
-			case f32:
-				if t2, ok := b.(f32); ok {
-					return (t1 == t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case i32:
-				if t2, ok := b.(i32); ok {
-					return (t1 == t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case bool:
-				if t2, ok := b.(bool); ok {
-					return (t1 == t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case Color:
-				if t2, ok := b.(Color); ok {
-					return (t1 == t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case VM_Label:
-				if t2, ok := b.(VM_Label); ok {
-					return (t1 == t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
+	#partial switch cond {
+	case .Eq:
+		switch t1 in a {
+		case f32:
+			if t2, ok := b.(f32); ok {
+				return (t1 == t2), .None
+			} else {
+				return false, .Argument_Mismatch
 			}
-		case .Neq:
-			switch t1 in a {
-			case f32:
-				if t2, ok := b.(f32); ok {
-					return (t1 != t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case i32:
-				if t2, ok := b.(i32); ok {
-					return (t1 != t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case bool:
-				if t2, ok := b.(bool); ok {
-					return (t1 != t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case Color:
-				if t2, ok := b.(Color); ok {
-					return (t1 != t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case VM_Label:
-				if t2, ok := b.(VM_Label); ok {
-					return (t1 != t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
+		case i32:
+			if t2, ok := b.(i32); ok {
+				return (t1 == t2), .None
+			} else {
+				return false, .Argument_Mismatch
 			}
-		case .Lt:
-			#partial switch t1 in a {
-			case f32:
-				if t2, ok := b.(f32); ok {
-					return (t1 < t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case i32:
-				if t2, ok := b.(i32); ok {
-					return (t1 < t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case:
-				return false, .Comparison_Faliure
+		case bool:
+			if t2, ok := b.(bool); ok {
+				return (t1 == t2), .None
+			} else {
+				return false, .Argument_Mismatch
 			}
-		case .Leq:
-			#partial switch t1 in a {
-			case f32:
-				if t2, ok := b.(f32); ok {
-					return (t1 <= t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case i32:
-				if t2, ok := b.(i32); ok {
-					return (t1 <= t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case:
-				return false, .Comparison_Faliure
+		case Color:
+			if t2, ok := b.(Color); ok {
+				return (t1 == t2), .None
+			} else {
+				return false, .Argument_Mismatch
 			}
-		case .Gt:
-			#partial switch t1 in a {
-			case f32:
-				if t2, ok := b.(f32); ok {
-					return (t1 > t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case i32:
-				if t2, ok := b.(i32); ok {
-					return (t1 > t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case:
-				return false, .Comparison_Faliure
+		case VM_Label:
+			if t2, ok := b.(VM_Label); ok {
+				return (t1 == t2), .None
+			} else {
+				return false, .Argument_Mismatch
 			}
-		case .Geq:
-			#partial switch t1 in a {
-			case f32:
-				if t2, ok := b.(f32); ok {
-					return (t1 >= t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case i32:
-				if t2, ok := b.(i32); ok {
-					return (t1 >= t2), .None
-				} else {
-					return false, .Argument_Mismatch
-				}
-			case:
-				return false, .Comparison_Faliure
-			}
+		case VM_Param:
+			// Type is not comparable
+			return false, .Comparison_Faliure
 		}
-		unreachable()
+	case .Neq:
+		switch t1 in a {
+		case f32:
+			if t2, ok := b.(f32); ok {
+				return (t1 != t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case i32:
+			if t2, ok := b.(i32); ok {
+				return (t1 != t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case bool:
+			if t2, ok := b.(bool); ok {
+				return (t1 != t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case Color:
+			if t2, ok := b.(Color); ok {
+				return (t1 != t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case VM_Label:
+			if t2, ok := b.(VM_Label); ok {
+				return (t1 != t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case VM_Param:
+			// Type is not comparable
+			return false, .Comparison_Faliure
+		}
+	case .Lt:
+		#partial switch t1 in a {
+		case f32:
+			if t2, ok := b.(f32); ok {
+				return (t1 < t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case i32:
+			if t2, ok := b.(i32); ok {
+				return (t1 < t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case:
+			return false, .Comparison_Faliure
+		}
+	case .Leq:
+		#partial switch t1 in a {
+		case f32:
+			if t2, ok := b.(f32); ok {
+				return (t1 <= t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case i32:
+			if t2, ok := b.(i32); ok {
+				return (t1 <= t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case:
+			return false, .Comparison_Faliure
+		}
+	case .Gt:
+		#partial switch t1 in a {
+		case f32:
+			if t2, ok := b.(f32); ok {
+				return (t1 > t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case i32:
+			if t2, ok := b.(i32); ok {
+				return (t1 > t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case:
+			return false, .Comparison_Faliure
+		}
+	case .Geq:
+		#partial switch t1 in a {
+		case f32:
+			if t2, ok := b.(f32); ok {
+				return (t1 >= t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case i32:
+			if t2, ok := b.(i32); ok {
+				return (t1 >= t2), .None
+			} else {
+				return false, .Argument_Mismatch
+			}
+		case:
+			return false, .Comparison_Faliure
+		}
 	}
+	unreachable()
+}
 
 vm_add :: proc(vm: ^VM) -> VM_Error {
 	vm_ensure_arg_count(vm, 2) or_return
@@ -363,7 +482,7 @@ vm_add :: proc(vm: ^VM) -> VM_Error {
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label:
+	case bool, VM_Label, VM_Param:
 		return .Argument_Mismatch
 	}
 
@@ -394,7 +513,7 @@ vm_subtract :: proc(vm: ^VM) -> VM_Error {
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label:
+	case bool, VM_Label, VM_Param:
 		return .Argument_Mismatch
 	}
 
@@ -425,7 +544,7 @@ vm_multiply :: proc(vm: ^VM) -> VM_Error {
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label:
+	case bool, VM_Label, VM_Param:
 		return .Argument_Mismatch
 	}
 
@@ -456,7 +575,7 @@ vm_divide :: proc(vm: ^VM) -> VM_Error {
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label:
+	case bool, VM_Label, VM_Param:
 		return .Argument_Mismatch
 	}
 
@@ -474,8 +593,8 @@ vm_negate :: proc(vm: ^VM) -> VM_Error {
 	case bool:
 		vm_push_value(vm, !v) or_return
 	case Color:
-	// TODO: Invert color
-	case VM_Label:
+		unimplemented("TODO: Invert color")
+	case VM_Label, VM_Param:
 		return .Argument_Mismatch
 	}
 

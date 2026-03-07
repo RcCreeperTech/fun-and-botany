@@ -1,7 +1,7 @@
 package web_testing
 
-import "core:log"
 import "core:fmt"
+import "core:reflect"
 import "core:strconv"
 
 Token :: struct {
@@ -21,10 +21,12 @@ Token_Keyword :: enum {
 	Rand,
 	Jump,
 	Spawn,
-	Dye,
 	End,
+	Get,
+	Set,
 }
 Token_Identifier :: struct {}
+Token_Parameter :: struct {}
 Token_Minus :: struct {}
 Token_Colon :: struct {}
 Token_Slash :: struct {}
@@ -38,6 +40,7 @@ Token_BoolLit :: bool
 
 Token_Kind :: union {
 	Token_Identifier,
+	Token_Parameter,
 	Token_Minus,
 	Token_Colon,
 	Token_Slash,
@@ -52,19 +55,20 @@ Token_Kind :: union {
 }
 
 AssemblerError :: union #shared_nil {
-	AsmError,
-	ParseError,
+	ProgramError,
+	ParserError,
+	ScannerError,
 }
 
-AsmError :: enum {
+ProgramError :: enum {
 	None = 0,
+	Unknown_Parameter,
 	No_Entrypoint_Found,
 }
 
-ParseError :: enum {
+ParserError :: enum {
 	None = 0,
 	Undefined_Predicate,
-	Unexpected_End_Of_File,
 	Unexpected_Token,
 	Unexpected_Top_Level_Keyword,
 }
@@ -110,6 +114,13 @@ asm_assemble :: proc(
 			return next_id
 		}
 	}
+
+	lookup_parameter_by_name :: proc(name: string) -> (param: VM_Param, err: ProgramError) {
+		val, ok := reflect.enum_from_name(VM_Param, name[1:]);
+		if !ok do return {}, .Unknown_Parameter
+		return val, nil
+	}
+
 	blocks := make(BlockMap) // TODO: Arena?
 	jump_table := make_jump_table() // TODO: cleanup
 
@@ -126,12 +137,19 @@ asm_assemble :: proc(
 	}
 
 	if !found_main {
-		return {}, AsmError.No_Entrypoint_Found
+		return {}, ProgramError.No_Entrypoint_Found
 	}
 
-	return program, AsmError.None
+	return program, nil
 
-	parse :: proc(s: ^Scanner, blocks: ^BlockMap, jt: ^JumpTable) -> (t: Token, err: ParseError) {
+	parse :: proc(
+		s: ^Scanner,
+		blocks: ^BlockMap,
+		jt: ^JumpTable,
+	) -> (
+		t: Token,
+		err: AssemblerError,
+	) {
 		for {
 			tok := scanner_next(s) or_break
 
@@ -148,7 +166,7 @@ asm_assemble :: proc(
 			}
 
 		}
-		return {}, .None
+		return {}, nil
 
 
 		parse_block :: proc(
@@ -157,7 +175,7 @@ asm_assemble :: proc(
 			jt: ^JumpTable,
 			label: string,
 		) -> (
-			err: ParseError,
+			err: AssemblerError,
 		) {
 			block := make([dynamic]VM_Instruction) // TODO: Arena
 
@@ -165,36 +183,33 @@ asm_assemble :: proc(
 			_ = expect(s, Token_End_Of_Statement) or_return
 
 			loop: for {
-				if tok, ok := scanner_next(s); ok {
-					#partial switch k in tok.kind {
-					case Token_Keyword:
-						#partial switch k {
-						case .End:
-							_ = expect(s, Token_End_Of_Statement) or_return
-							break loop
-						case .Const:
-							unimplemented("What to do here")
-						case:
-							inst := parse_instruction(s, k, jt) or_return
-							append(&block, inst)
-						}
-
-					case Token_Identifier:
-						sublabel := fmt.aprintf("%s:%s", label, tok.raw) // TODO: Arena
-						parse_block(s, blocks, jt, sublabel) or_return
-
+				tok := scanner_next(s) or_return
+				#partial switch k in tok.kind {
+				case Token_Keyword:
+					#partial switch k {
+					case .End:
+						_ = expect(s, Token_End_Of_Statement) or_return
+						break loop
+					case .Const:
+						unimplemented("What to do here")
 					case:
-						return .Unexpected_Token
-
+						inst := parse_instruction(s, k, jt) or_return
+						append(&block, inst)
 					}
-				} else {
-					return .Unexpected_End_Of_File
+
+				case Token_Identifier:
+					sublabel := fmt.aprintf("%s:%s", label, tok.raw) // TODO: Arena
+					parse_block(s, blocks, jt, sublabel) or_return
+
+				case:
+					return .Unexpected_Token
+
 				}
 			}
 
 			blocks[label] = block
 
-			return .None
+			return nil
 		}
 		parse_instruction :: proc(
 			s: ^Scanner,
@@ -202,46 +217,76 @@ asm_assemble :: proc(
 			jt: ^JumpTable,
 		) -> (
 			inst: VM_Instruction,
-			err: ParseError,
+			err: AssemblerError,
 		) {
 			switch keyword {
+			case .Get:
+				inst.op = .GetParam
+
+				tok := scanner_peek(s) or_return
+				if check_token(tok, Token_Slash) {
+					_ = expect(s, Token_Slash) or_return
+					inst.precondition = parse_precondition(s) or_return
+				}
+
+				param := expect(s, Token_Parameter) or_return
+				inst.imm[0] = lookup_parameter_by_name(param.raw) or_return
+
+				_ = expect(s, Token_End_Of_Statement) or_return
+			case .Set:
+				inst.op = .SetParam
+
+				tok := scanner_peek(s) or_return
+				if check_token(tok, Token_Slash) {
+					_ = expect(s, Token_Slash) or_return
+					inst.precondition = parse_precondition(s) or_return
+				}
+
+				param := expect(s, Token_Parameter) or_return
+				inst.imm[0] = lookup_parameter_by_name(param.raw) or_return
+
+				_ = expect(s, Token_End_Of_Statement) or_return
 			case .Push:
 				inst.op = .Push
 
-				if tok, ok := scanner_peek(s); ok {
-					#partial switch k in tok.kind {
-					case Token_Slash:
-						_ = expect(s, Token_Slash) or_return
-						inst.precondition = parse_precondition(s) or_return
-						inst.imm[0] = parse_literal(s, jt) or_return
+				tok:= scanner_peek(s) or_return
+				if check_token(tok, Token_Slash) {
+					_ = expect(s, Token_Slash) or_return
+					inst.precondition = parse_precondition(s) or_return
+
+					inst.imm[0] = parse_literal(s, jt) or_return
+
+					tok := scanner_peek(s) or_return
+					if check_token(tok, Token_Comma) {
 						_ = expect(s, Token_Comma) or_return
 						inst.imm[1] = parse_literal(s, jt) or_return
-					case:
-						value := parse_literal(s, jt) or_return
-						inst.imm[0] = value
 					}
 				} else {
-					return {}, .Unexpected_End_Of_File
+					value := parse_literal(s, jt) or_return
+					inst.imm[0] = value
 				}
 
 				_ = expect(s, Token_End_Of_Statement) or_return
 			case .Jump:
 				inst.op = .Jump
+				tok := scanner_peek(s) or_return
+				if check_token(tok, Token_Slash) {
+					_ = expect(s, Token_Slash) or_return
+					inst.precondition = parse_precondition(s) or_return
 
-				if tok, ok := scanner_peek(s); ok {
-					#partial switch k in tok.kind {
-					case Token_Slash:
-						_ = expect(s, Token_Slash) or_return
-						inst.precondition = parse_precondition(s) or_return
-						inst.imm[0] = parse_literal(s, jt) or_return
+					l0 := expect(s, Token_Label) or_return
+					inst.imm[0] = jt_lookup_label(jt, l0.raw)
+
+					tok := scanner_peek(s) or_return
+					if check_token(tok, Token_Comma) {
 						_ = expect(s, Token_Comma) or_return
-						inst.imm[1] = parse_literal(s, jt) or_return
-					case:
-						value := parse_literal(s, jt) or_return
-						inst.imm[0] = value
+
+						l1 := expect(s, Token_Label) or_return
+						inst.imm[1] = jt_lookup_label(jt, l1.raw)
 					}
 				} else {
-					return {}, .Unexpected_End_Of_File
+					l := expect(s, Token_Label) or_return
+					inst.imm[0] = jt_lookup_label(jt, l.raw)
 				}
 
 				_ = expect(s, Token_End_Of_Statement) or_return
@@ -265,85 +310,74 @@ asm_assemble :: proc(
 				parse_basic_instruction(s, &inst) or_return
 			case .Spawn:
 				unimplemented()
-			case .Dye:
-				unimplemented()
 			case .Const, .End:
 				unreachable()
 			}
-			return inst, .None
+			return inst, nil
 		}
-		parse_basic_instruction :: proc(s: ^Scanner, inst: ^VM_Instruction) -> ParseError {
-			if tok, ok := scanner_next(s); ok {
-				#partial switch k in tok.kind {
-				case Token_Slash:
-					inst.precondition = parse_precondition(s) or_return
-					_ = expect(s, Token_End_Of_Statement) or_return
-				case Token_End_Of_Statement:
-				case:
-					return .Unexpected_Token
-				}
-			} else {
-				return .Unexpected_End_Of_File
+		parse_basic_instruction :: proc(s: ^Scanner, inst: ^VM_Instruction) -> AssemblerError {
+			tok := scanner_next(s) or_return
+			#partial switch k in tok.kind {
+			case Token_Slash:
+				inst.precondition = parse_precondition(s) or_return
+				_ = expect(s, Token_End_Of_Statement) or_return
+			case Token_End_Of_Statement:
+			case:
+				return .Unexpected_Token
 			}
-			return .None
+
+			return nil
 		}
-		parse_precondition :: proc(s: ^Scanner) -> (cond: VM_Precondition, err: ParseError) {
+		parse_precondition :: proc(s: ^Scanner) -> (cond: VM_Precondition, err: AssemblerError) {
 			predicate := expect(s, Token_Identifier) or_return
 			switch predicate.raw {
 			case "eq":
-				return .Eq, .None
+				return .Eq, nil
 			case "neq":
-				return .Neq, .None
+				return .Neq, nil
 			case "lt":
-				return .Lt, .None
+				return .Lt, nil
 			case "leq":
-				return .Leq, .None
+				return .Leq, nil
 			case "gt":
-				return .Gt, .None
+				return .Gt, nil
 			case "geq":
-				return .Geq, .None
+				return .Geq, nil
 			case:
 				return {}, .Undefined_Predicate
 			}
 		}
-		parse_literal :: proc(s: ^Scanner, jt: ^JumpTable) -> (VM_Value, ParseError) {
-			if tok, ok := scanner_next(s); ok {
-				#partial switch k in tok.kind {
-				case Token_IntLit:
-					return k, .None
-				case Token_FloatLit:
-					return k, .None
-				case Token_BoolLit:
-					return k, .None
-				case Token_HexLit:
-					return rgba_u32_to_color(k), .None
-				case Token_Label:
-					return jt_lookup_label(jt, tok.raw), .None
-				case:
-					return {}, .Unexpected_Token // Is there a better error I can put here?
-				}
-			} else {
-				return {}, .Unexpected_End_Of_File
+		parse_literal :: proc(s: ^Scanner, jt: ^JumpTable) -> (result: VM_Value, err: AssemblerError) {
+
+			tok := scanner_next(s) or_return
+
+			#partial switch k in tok.kind {
+			case Token_IntLit:
+				return k, nil
+			case Token_FloatLit:
+				return k, nil
+			case Token_BoolLit:
+				return k, nil
+			case Token_HexLit:
+				return rgba_u32_to_color(k), nil
+			case Token_Label:
+				return jt_lookup_label(jt, tok.raw), nil
+			case:
+				return {}, .Unexpected_Token // Is there a better error I can put here?
 			}
 		}
 
-		check_token :: proc(token: Token, $T: typeid) -> ParseError {
-			if _, ok := token.kind.(T); ok {
-				return .None
-			} else {
-				return .Unexpected_Token
-			}
+		check_token :: proc(token: Token, $T: typeid) -> bool {
+			_, ok := token.kind.(T)
+			return ok
 		}
 		@(require_results)
-		expect :: proc(s: ^Scanner, $T: typeid) -> (Token, ParseError) {
-			if tok, ok := scanner_next(s); ok {
-				if _, ok := tok.kind.(T); ok {
-					return tok, .None
-				} else {
-					return tok, .Unexpected_Token
-				}
+		expect :: proc(s: ^Scanner, $T: typeid) -> (tok: Token, err: AssemblerError) {
+			tok = scanner_next(s) or_return
+			if _, ok := tok.kind.(T); ok {
+				return tok, nil
 			} else {
-				return {}, .Unexpected_End_Of_File
+				return tok, .Unexpected_Token
 			}
 		}
 	}
@@ -354,6 +388,7 @@ ScannerState :: enum {
 	EatWhitespace,
 	Main,
 	Identifier,
+	Parameter,
 	Comment,
 	Colon,
 	Minus,
@@ -368,12 +403,16 @@ Scanner :: struct {
 	head:      string,
 	prev:      Token_Kind,
 }
-scanner_peek :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
+ScannerError :: enum {
+	None = 0,
+	Unexpected_End_Of_File,
+}
+scanner_peek :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
 	tmp := s^
 	defer s^ = tmp
 	return scanner_next(s)
 }
-scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
+scanner_next :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
 	for {
 		switch s.state {
 		case .EatWhitespace:
@@ -389,7 +428,7 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 				s.col = 0
 				if s.prev != nil {
 					s.prev = nil
-					return out, true
+					return out, .None
 				}
 			case:
 				s.state = .Main
@@ -405,11 +444,11 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 			case '/':
 				next = begin_token(s)
 				advance(s)
-				return end_token(s, next, Token_Slash{}), true
+				return end_token(s, next, Token_Slash{}), .None
 			case ',':
 				next = begin_token(s)
 				advance(s)
-				return end_token(s, next, Token_Comma{}), true
+				return end_token(s, next, Token_Comma{}), .None
 			case ':':
 				next = begin_token(s)
 				advance(s)
@@ -422,6 +461,10 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 				next = begin_token(s)
 				advance(s)
 				s.state = .HexLit
+			case '$':
+				next = begin_token(s)
+				advance(s)
+				s.state = .Parameter
 			case '.':
 				next = begin_token(s)
 				advance(s)
@@ -433,20 +476,31 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 			case:
 				fmt.panicf("Unimplemented: Head is at: [%v]\"%c\".", s.head[0], s.head[0])
 			}
-		case .Identifier:
-			if c, ok := peek(s); !ok {
-				return end_token(s, next, Token_Identifier{}), true
+		case .Parameter:
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_Parameter{}), .None
 			} else {
 				switch c {
 				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
 					advance(s)
 				case:
-					return end_token(s, next, Token_Identifier{}), true
+					return end_token(s, next, Token_Parameter{}), .None
+				}
+			}
+		case .Identifier:
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_Identifier{}), .None
+			} else {
+				switch c {
+				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
+					advance(s)
+				case:
+					return end_token(s, next, Token_Identifier{}), .None
 				}
 			}
 		case .Comment:
-			if c, ok := peek(s); !ok {
-				return {}, false
+			if c, err := peek(s); err != .None {
+				return {}, .Unexpected_End_Of_File
 			} else {
 				switch c {
 				case '\n':
@@ -456,19 +510,19 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 				}
 			}
 		case .Minus:
-			if c, ok := peek(s); !ok {
-				return end_token(s, next, Token_Minus{}), true
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_Minus{}), .None
 			} else {
 				switch c {
 				case '0' ..= '9', '.':
 					s.state = .Digits
 				case:
-					return end_token(s, next, Token_Minus{}), true
+					return end_token(s, next, Token_Minus{}), .None
 				}
 			}
 		case .Digits:
-			if c, ok := peek(s); !ok {
-				return end_token(s, next, Token_IntLit{}), true
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_IntLit{}), .None
 			} else {
 				switch c {
 				case '.':
@@ -477,51 +531,51 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 				case '0' ..= '9', '_':
 					advance(s)
 				case:
-					return end_token(s, next, Token_IntLit{}), true
+					return end_token(s, next, Token_IntLit{}), .None
 				}
 			}
 		case .Colon:
-			if c, ok := peek(s); !ok {
-				return end_token(s, next, Token_Colon{}), true
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_Colon{}), .None
 			} else {
 				switch c {
 				case 'a' ..= 'z', 'A' ..= 'Z':
 					s.state = .Label
 				case:
-					return end_token(s, next, Token_Colon{}), true
+					return end_token(s, next, Token_Colon{}), .None
 				}
 			}
 		case .Label:
-			if c, ok := peek(s); !ok {
-				return end_token(s, next, Token_Label{}), true
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_Label{}), .None
 			} else {
 				switch c {
 				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', ':':
 					advance(s)
 				case:
-					return end_token(s, next, Token_Label{}), true
+					return end_token(s, next, Token_Label{}), .None
 				}
 			}
 		case .FloatLit:
-			if c, ok := peek(s); !ok {
-				return end_token(s, next, Token_FloatLit{}), true
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_FloatLit{}), .None
 			} else {
 				switch c {
 				case '0' ..= '9', '_':
 					advance(s)
 				case:
-					return end_token(s, next, Token_FloatLit{}), true
+					return end_token(s, next, Token_FloatLit{}), .None
 				}
 			}
 		case .HexLit:
-			if c, ok := peek(s); !ok {
-				return end_token(s, next, Token_HexLit{}), true
+			if c, err := peek(s); err != .None {
+				return end_token(s, next, Token_HexLit{}), .None
 			} else {
 				switch c {
 				case '0' ..= '9', 'a' ..= 'f', 'A' ..= 'F', '_':
 					advance(s)
 				case:
-					return end_token(s, next, Token_HexLit{}), true
+					return end_token(s, next, Token_HexLit{}), .None
 				}
 			}
 		}
@@ -568,10 +622,12 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 				out.kind = Token_Keyword.Jump
 			case "spawn":
 				out.kind = Token_Keyword.Spawn
-			case "dye":
-				out.kind = Token_Keyword.Dye
 			case "end":
 				out.kind = Token_Keyword.End
+			case "get":
+				out.kind = Token_Keyword.Get
+			case "set":
+				out.kind = Token_Keyword.Set
 			}
 		case Token_IntLit:
 			v, ok := strconv.parse_i64(out.raw, 10)
@@ -590,11 +646,11 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, ok: bool) {
 		s.state = .EatWhitespace
 		return
 	}
-	peek :: proc(s: ^Scanner) -> (c: u8, ok: bool) {
+	peek :: proc(s: ^Scanner) -> (c: u8, err: ScannerError) {
 		if len(s.head) != 0 {
-			return s.head[0], true
+			return s.head[0], .None
 		} else {
-			return {}, false
+			return {}, .Unexpected_End_Of_File
 		}
 	}
 	// unsafe

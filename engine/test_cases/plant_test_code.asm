@@ -3,10 +3,10 @@
 
 ; This is a constant, It will have a value that is calculated at compile time.
 ; It will be able to do constant folding as long as all inputs are constants.
-const END_GROWTH_RATE = 123 * 0.0001
-const TURN_ANGLE = TAU / 9
-const BROWN = #D27D2DFF ; RGBA hex code
-const PINK  = #FF00FFFF
+let END_GROWTH_RATE = 123 * 0.0001
+let TURN_ANGLE = TAU / 9
+let BROWN = #D27D2DFF ; RGBA hex code
+let PINK  = #FF00FFFF
 
 ; Unanswered Questions
 ; How are variables going to be handled. There is the VM stack but what if values need to live longer.
@@ -24,7 +24,7 @@ const PINK  = #FF00FFFF
 ; Sub blocks do not interrupt the control flow of their parent blocks they can
 ; be inserted inbetween instructions but will have no effect unless jumped to.
 Bud:
-    push $growth_rate
+    get $Growth_Rate
     push END_GROWTH_RATE
     push 5.0
     mul
@@ -40,14 +40,14 @@ Bud:
         spawn
 
         push :Stem
-        set $state
+        set $State
     end
 
     node_or_petal:
         rand
         push 0.95
         push/lt :Node, :Petal
-        set $state
+        set $State
     end
 end
 
@@ -75,19 +75,21 @@ Node:
 end
 
 Stem:
-    dye BROWN
-
+    push BROWN
+    set $Color
+    ; Length += 0.001
+    get $Lenght
     push 0.001
-    push $target_length
     add
-    set $target_length
-
+    set $Length
+    ; Thickness += 0.005
+    get $Thickness
     push 0.005
-    push $target_thickness
     add
-    set $target_thickness
+    set $Thickness
 end
 
 Petal:
-    dye PINK
+    push PINK
+    set $Color
 end
