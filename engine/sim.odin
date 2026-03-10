@@ -5,6 +5,7 @@ import hm "core:container/handle_map"
 import "core:math"
 import la "core:math/linalg"
 import "core:math/rand"
+import rg "renderer"
 
 SIM_DEBUG_RENDERING :: false
 SIM_BASELINE_JOINT_COMPLIANCE :: 0.000001
@@ -12,6 +13,10 @@ SIM_DYE_RATE :: 2.3 // TODO: Per cell
 SIM_BASELINE_GROWTH_RATE :: 0.5
 SIM_END_GROWTH_RATE :: 0.01
 SIM_CELL_AGING_RATE :: 0.7
+
+Matrix3 :: la.Matrix3x3f32
+Vec2 :: [2]f32
+Vec3 :: [3]f32
 
 sim_update :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 	// TODO: Inject resources into the root and set any global sim parameters
@@ -28,14 +33,10 @@ sim_tick_cells :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 		growth_rate = exp_decay(growth_rate, SIM_END_GROWTH_RATE, SIM_CELL_AGING_RATE, dt)
 		thickness = exp_decay(thickness, target_thickness, growth_rate, dt)
 		length = exp_decay(length, target_length, growth_rate, dt)
-		when true {
-			ftarget := to_fcolor(target_color)
-			fcolor := to_fcolor(color)
-			for i in 0 ..< 4 {
-				color[i] = u8(exp_decay(fcolor[i], ftarget[i], SIM_DYE_RATE, dt) * 255)
-			}
-		} else {
-			color = target_color
+		ftarget := to_fcolor(target_color)
+		fcolor := to_fcolor(color)
+		for i in 0 ..< 4 {
+			color[i] = u8(exp_decay(fcolor[i], ftarget[i], SIM_DYE_RATE, dt) * 255)
 		}
 		return
 	}
@@ -251,8 +252,6 @@ sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, de
 		switch element.debug_state {
 		case .Bud:
 			if element.growth_rate <= SIM_END_GROWTH_RATE * 5 { 	// Only try to apply next state once growth slowed down sufficiently
-				// element_spawn(&g_app_state.elements, element)
-				// element.debug_state = .Stem // should spawn do this automatically?
 				if rand.float32() < 0.33 {
 					element_spawn(&g_app_state.elements, element)
 					element.debug_state = .Stem // should spawn do this automatically?
@@ -289,9 +288,6 @@ exp_decay :: proc(a, b: $T, decay, dt: f32) -> T {
 }
 
 sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
-	// Clear the off-screen buffer to transparent (required for compositing later)
-	rc_clear(&rc, BG_COLOR)
-
 	{
 		lo, hi: Vec2 = math.INF_F32, -math.INF_F32
 		it := hm.iterator_make(&elements)
@@ -304,14 +300,27 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 		camera_target := (hi + lo) / 2
 		camera.target = exp_decay(camera.target, camera_target, 5, dt)
 	}
+	rg.frame_begin(&r)
 
-	if rc_camera_mode(camera) {
+	rg.pass_begin(&r, {clear = true, color = BG_COLOR}, rg.Pipeline_Basic{projection = ortho_proj})
+	if rg.camera_mode(&r, camera, f32(dpr)) {
 		draw_plant(app_state, root_element)
+		// TODO: add back the ground and calculate its world space
+		// rc_draw_rect(
+		// 	&rc,
+		// 	{0, origin.y},
+		// 	{f32(window_width), f32(window_height) * 0.05},
+		// 	DARKGREEN,
+		// )
 	}
+	rg.pass_end(&r)
+
+	rg.frame_end(&r)
+
 
 	draw_plant :: proc(using sim_state: ^ApplicationState, h: Handle, prev: ^Sim_Element = nil) {
 		if e, ok := hm.get(&elements, h); ok {
-			rc_draw_circle(&rc, e.position, e.thickness, color = e.color)
+			rg.draw_circle(&r, e.position, e.thickness, color = e.color)
 			prev := prev
 			// Inject a dummy prev for the origin segment
 			if prev == nil {
@@ -321,8 +330,8 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 				}
 				prev = &dummy
 			}
-			rc_draw_wedge(
-				&rc,
+			rg.draw_wedge(
+				&r,
 				prev.position,
 				e.position,
 				prev.thickness,
@@ -344,13 +353,4 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 		}
 	}
 
-	// TODO: add back the ground and calculate its world space
-	// rc_draw_rect(
-	// 	&rc,
-	// 	{0, origin.y},
-	// 	{f32(window_width), f32(window_height) * 0.05},
-	// 	DARKGREEN,
-	// )
-
-	rc_flush(&rc)
 }

@@ -1,13 +1,13 @@
 #+feature using-stmt
 package web_testing
 
+import "core:log"
 import wgl "WebGL"
 import hm "core:container/handle_map"
 import "core:fmt"
 import "core:math"
-import cx "core:math/cmplx"
 import la "core:math/linalg"
-import "core:math/rand"
+import rg "renderer"
 
 SIM_MAX_DEPTH :: 10
 
@@ -18,13 +18,14 @@ ApplicationState :: struct {
 	window_width:          i32,
 	window_height:         i32,
 	dpr:                   f64,
-	rt_metaballs:          DebugRenderer_RenderTarget,
-	rc:                    DebugRenderer_Context,
+	ortho_proj: la.Matrix4f32,
+	r:                   rg.Renderer_State,
 	num_substeps:          int `ui:"name='Substeps',min=0,max=10"`,
 	seperation_compliance: f32 `ui:"name='Seperation Compliance',min=0,max=1"`,
 	elements:              ElementMap,
 	root_element:          Handle,
-	camera:                Camera,
+	camera:                rg.Camera,
+	debug_rc: DebugRenderer_Context,
 }
 
 // TODO: @(private="file")
@@ -42,14 +43,16 @@ main :: proc() {
 	esmajor, esminor: i32
 	wgl.GetESVersion(&esmajor, &esminor)
 	fmt.printfln("Created graphics context: WebGL %d.%d ES %d.%d", major, minor, esmajor, esminor)
-	rc_initialize(&g_app_state.rc)
 
-	g_app_state.camera = {
+	rg.init(&g_app_state.r, context.allocator)
+	rc_initialize(&g_app_state.debug_rc)
+
+	g_app_state.camera = rg.Camera {
 		zoom = 0.5,
 	}
 
 	g_app_state.seperation_compliance = 0.00008
-	g_app_state.num_substeps = 4
+	g_app_state.num_substeps = 8
 
 	g_app_state.root_element = hm.add(
 		&g_app_state.elements,
@@ -77,24 +80,10 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 
 	center := window_center()
 
-	when true {
-		sim_update(&g_app_state, f32(delta_time))
-		sim_render(&g_app_state, f32(delta_time))
-	} else {
-		foo(&g_app_state)
-		foo :: proc(using app_state: ^ApplicationState) {
-			rc_clear(&rc, BG_COLOR)
-			rc_draw_circle(&rc, 0, 50, color = RED)
-			if rc_camera_mode(camera) {
-				rc_draw_circle(&rc, 0, 50, color = GREEN)
-				L :: 100
-				rc_draw_line(&rc, 0, {0, L}, color = WHITE)
-				s, c := math.sincos_f32(f32(cumulative_time) / 100)
-				rc_draw_line(&rc, 0, {c, s} * L, color = PINK)
-			}
-			rc_flush(&rc)
-		}
-	}
+	sim_update(&g_app_state, f32(delta_time))
+	sim_render(&g_app_state, f32(delta_time))
+
+	debug_renderer_flush(&g_app_state.debug_rc, &g_app_state.r)
 
 	return true
 }
@@ -105,15 +94,13 @@ window_resize :: proc(width, height, dpr: f64) {
 	g_app_state.window_height = i32(height * dpr)
 	g_app_state.dpr = dpr
 	w, h := g_app_state.window_width, g_app_state.window_height
-	g_app_state.camera = {
+	g_app_state.camera = rg.Camera {
 		zoom   = 1,
 		offset = Vec2{f32(w), f32(h)} * 0.5,
 	}
 	wgl.Viewport(0, 0, w, h)
-	g_app_state.rc.ortho_proj = la.matrix_ortho3d_f32(0, f32(w), f32(h), 0, -1, 1)
+	g_app_state.ortho_proj = la.matrix_ortho3d_f32(0, f32(w), f32(h), 0, -1, 1)
 	fmt.println("Resized the window: ", w, h, dpr)
-	rc_destroy_render_target(g_app_state.rt_metaballs) // Idempotent
-	g_app_state.rt_metaballs = rc_create_render_target(&g_app_state.rc, w, h)
 }
 
 window_center :: proc() -> Vec2 {
