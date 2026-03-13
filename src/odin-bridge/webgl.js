@@ -95,8 +95,8 @@ export class WebGLInterface {
     }
   }
   getSource(shader, strings_ptr, strings_length) {
-    const sizeof_ptr = 4;
-    const padding = 4;
+    const sizeof_ptr = this.wmi.pointerSize;
+    const padding = (this.wmi.pointerSize == 4) ? 0 : 4;
     const sizeof_len = this.wmi.intSize;
     const sizeof_string = sizeof_ptr + padding + sizeof_len;
     let source = "";

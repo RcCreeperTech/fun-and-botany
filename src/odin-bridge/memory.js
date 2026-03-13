@@ -57,7 +57,7 @@ export class WasmMemoryInterface {
 
   loadFfiString(tptr) {
     const ptr = this.loadPtr(tptr);
-    const len = this.loadInt(tptr + 8);
+    const len = this.loadInt(tptr + this.pointerSize);
     return this.loadString(ptr, len);
   }
 

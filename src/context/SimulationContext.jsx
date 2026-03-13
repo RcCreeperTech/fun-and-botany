@@ -10,7 +10,7 @@ export function SimulationProvider(props) {
   onMount(async () => {
     try {
       console.log("🚀 Starting Engine...");
-      await bridge.initialize({ path: "/engine.wasm", canvasElement: "gl-canvas", intSize: 8 });
+      await bridge.initialize({ path: "/engine.wasm", canvasElement: "gl-canvas", intSize: 4 });
       bridge.run();
     } catch (err) {
       console.error("Failed to load WASM:", err);
