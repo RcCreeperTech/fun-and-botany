@@ -1,7 +1,6 @@
 #+feature using-stmt
 package web_testing
 
-import "core:log"
 import wgl "WebGL"
 import hm "core:container/handle_map"
 import "core:fmt"
@@ -48,7 +47,7 @@ main :: proc() {
 	rc_initialize(&g_app_state.debug_rc)
 
 	g_app_state.camera = rg.Camera {
-		zoom = 0.5,
+		zoom = SIM_PIXELS_PER_METER,
 	}
 
 	g_app_state.seperation_compliance = 0.00008
@@ -57,15 +56,14 @@ main :: proc() {
 	g_app_state.root_element = hm.add(
 		&g_app_state.elements,
 		Sim_Element {
-			position = {0, 1},
-			rest_angle = math.TAU / 4,
 			color = DARKGREEN,
 			target_color = DARKGREEN,
 			debug_state = .Bud,
 			joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
 			growth_rate = SIM_BASELINE_GROWTH_RATE,
-			target_length = 80,
-			target_thickness = 40,
+			inv_mass = 1,
+			target_length = 1,
+			target_thickness = 0.4,
 		},
 	)
 }
@@ -89,18 +87,19 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 }
 
 @(export)
-window_resize :: proc(width, height, dpr: f64) {
-	g_app_state.window_width = i32(width * dpr)
-	g_app_state.window_height = i32(height * dpr)
+window_resize :: proc(css_width, css_height, dpr: f64) {
+	phys_w, phys_h := i32(css_width * dpr), i32(css_height * dpr)
+	g_app_state.window_width = i32(phys_w)
+	g_app_state.window_height = i32(phys_h)
 	g_app_state.dpr = dpr
-	w, h := g_app_state.window_width, g_app_state.window_height
+
+	g_app_state.ortho_proj = la.matrix_ortho3d_f32(0, f32(css_width), f32(css_height), 0, -1, 1)
 	g_app_state.camera = rg.Camera {
-		zoom   = 1,
-		offset = Vec2{f32(w), f32(h)} * 0.5,
+		zoom   = SIM_PIXELS_PER_METER,
+		offset = Vec2{f32(css_width), f32(css_height)} * 0.5,
 	}
-	wgl.Viewport(0, 0, w, h)
-	g_app_state.ortho_proj = la.matrix_ortho3d_f32(0, f32(w), f32(h), 0, -1, 1)
-	fmt.println("Resized the window: ", w, h, dpr)
+
+	wgl.Viewport(0, 0, phys_w, phys_h)
 }
 
 window_center :: proc() -> Vec2 {

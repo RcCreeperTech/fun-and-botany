@@ -9,10 +9,20 @@ import rg "renderer"
 
 SIM_DEBUG_RENDERING :: false
 SIM_BASELINE_JOINT_COMPLIANCE :: 0.000001
-SIM_DYE_RATE :: 2.3 // TODO: Per cell
+SIM_DYE_RATE :: 1.7 // TODO: Per cell
 SIM_BASELINE_GROWTH_RATE :: 0.5
 SIM_END_GROWTH_RATE :: 0.01
 SIM_CELL_AGING_RATE :: 0.7
+SIM_PIXELS_PER_METER :: 100
+
+E_WOOD :: f32(2_000_000) // 2 GPa in Pa
+E_STEM :: f32(300_000) // 300 MPa
+E_LEAF :: f32(50_000) // 50 MPa
+E_PETAL :: f32(5_000) // 5 MPa
+
+WOOD_DENSITY :: .80 // Kg/M^2
+LEAF_DENSITY :: 600 // Kg/M^2
+PETAL_DENSITY :: 200 // Kg/M^2
 
 Matrix3 :: la.Matrix3x3f32
 Vec2 :: [2]f32
@@ -50,7 +60,6 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 		sim_solve_branch_constraints(&elements, root_element, dt)
 		sim_solve_ground_constraint(app_state)
 		sim_update_body_velocities(&elements, dt)
-		sim_seperate_bodies_relaxed(app_state, dt)
 	}
 
 	sim_integrate_bodies :: proc(elements: ^ElementMap, dt: f32) {
@@ -66,8 +75,8 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 
 	sim_update_body_velocities :: proc(elements: ^ElementMap, dt: f32) {
 		it := hm.iterator_make(elements)
-		damping_per_frame :: 0.95
-		damping_per_substep := math.pow(damping_per_frame, 1 / f32(g_app_state.num_substeps)) // FIXME!!!!!!!!!!!!!!
+		damping_per_frame :: 0.85
+		damping_per_substep := math.pow(damping_per_frame, 1.0 / f32(g_app_state.num_substeps)) // FIXME!!!!!!!!!!!!!!
 		for e, h in hm.iterate(&it) {
 			e.velocity = (e.position - e.old_position) / dt
 			e.velocity *= damping_per_substep
@@ -79,60 +88,59 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 		for e, h in hm.iterate(&it) {
 			if h == root_element do continue
 
-			error := e.position.y + e.thickness
-			if error > 0 do continue
-
-			e.position -= {0, error}
+			error := e.position.y - e.thickness // negative = below ground
+			if error >= 0 do continue
+			e.position.y -= error // push up to y = thickness
 		}
+	}
+
+	sim_back_propagate_ground_forces :: proc(elements: ^ElementMap, h: Handle) {
+		e, ok := hm.get(elements, h)
+		if !ok do return
+
+		// Leaves first, then propagate upward on the way back
+		it := e.first_child
+		for {
+			child := hm.get(elements, it) or_break
+			sim_back_propagate_ground_forces(elements, child.handle)
+			it = child.right
+		}
+
+		parent, ok2 := hm.get(elements, e.parent)
+		if !ok2 || parent.inv_mass == 0 do return // don't move pinned root
+
+		base_to_tip := e.position - parent.position
+		current_length := la.length(base_to_tip)
+		if current_length == 0 do return
+
+		dir := base_to_tip / current_length
+		error := e.length - current_length
+
+		// Move parent only — rigid, no compliance needed here
+		parent.position -= dir * error
 	}
 
 	sim_solve_branch_constraints :: proc(
 		elements: ^ElementMap,
 		h: Handle,
 		dt: f32,
-		parent_position: Vec2 = 0,
+		parent: ^Sim_Element = nil,
 		parent_angle: f32 = 0,
 	) {
 		self, ok := hm.get(elements, h)
 		if !ok do return
 
-		{ 	// constrain angle
-			base_to_tip := self.position - parent_position
+		parent_position: Vec2 = 0 if parent == nil else parent.position
+		parent_angle: f32 = math.τ / 4 if parent == nil else parent_angle
 
-			current_angle := math.atan2(base_to_tip.y, base_to_tip.x)
-			target_angle := parent_angle + self.rest_angle
+		target_angle := parent_angle + self.rest_angle
+		s, c := math.sincos(target_angle)
+		target_pos := parent_position + Vec2{c, s} * self.length
 
-			error := angle_diff(current_angle, target_angle)
-			s, c := math.sincos(current_angle)
-			tangent_dir := Vec2{-s, c}
-
-			arc_error := error * self.length
-			alpha := self.joint_compliance / (dt * dt)
-			lambda := arc_error / (self.inv_mass + alpha)
-
-			self.position += tangent_dir * lambda * self.inv_mass
-
-			angle_diff :: proc "contextless" (a, b: f32) -> f32 {
-				diff := b - a
-				diff -= math.round(diff / math.TAU) * math.TAU
-				return diff
-			}
-		}
-		{ 	// constrain length
-			base_to_tip := self.position - parent_position
-			current_length := la.length(base_to_tip)
-			error := self.length - current_length
-			dir: Vec2
-			if current_length > 0 {
-				dir = base_to_tip / current_length
-			} else { 	// Fallback for degenerate case
-				target_angle := parent_angle + self.rest_angle
-				s, c := math.sincos(target_angle)
-				dir = {c, s}
-			}
-			// Constraint is fully rigid
-			self.position += dir * error
-		}
+		correction := target_pos - self.position
+		alpha := self.joint_compliance / (dt * dt)
+		lambda := 1.0 / (self.inv_mass + alpha) // parent is anchor, inv_mass = 0
+		self.position += correction * lambda * self.inv_mass
 
 		base_to_tip := self.position - parent_position
 		final_angle := math.atan2(base_to_tip.y, base_to_tip.x)
@@ -140,28 +148,8 @@ sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
 		it := self.first_child
 		for {
 			child := hm.get(elements, it) or_break
-			sim_solve_branch_constraints(elements, child.handle, dt, self.position, final_angle)
+			sim_solve_branch_constraints(elements, child.handle, dt, self, final_angle)
 			it = child.right
-		}
-	}
-	sim_seperate_bodies_relaxed :: proc(using sim_state: ^ApplicationState, dt: f32) {
-		it := hm.iterator_make(&elements)
-		for a, h_a in hm.iterate(&it) {
-			jt := hm.iterator_make(&elements)
-			for b, h_b in hm.iterate(&jt) {
-				if h_a == h_b do continue
-				ab := b.position - a.position
-				d2 := la.length2(ab)
-				r2 := (a.thickness + b.thickness) * (a.thickness + b.thickness)
-				if d2 > r2 do continue
-
-				error := math.sqrt(r2 - d2)
-				alpha := seperation_compliance / (dt * dt)
-				lambda := error / (a.inv_mass + b.inv_mass + alpha)
-				dir := la.normalize0(ab)
-				a.velocity -= lambda * a.inv_mass * dir
-				b.velocity += lambda * b.inv_mass * dir
-			}
 		}
 	}
 }
@@ -185,10 +173,11 @@ Sim_Element :: struct {
 	position:                Vec2,
 	velocity:                Vec2,
 	rest_angle:              f32, // Relative to the parent's angle
-	inv_mass:                f32,
+	inv_mass:      f32,
 	joint_compliance:        f32,
 	length:                  f32,
 	thickness:               f32,
+	density: 				 f32,
 	// Growth Parameters
 	target_thickness:        f32,
 	target_length:           f32,
@@ -252,28 +241,19 @@ sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, de
 		switch element.debug_state {
 		case .Bud:
 			if element.growth_rate <= SIM_END_GROWTH_RATE * 5 { 	// Only try to apply next state once growth slowed down sufficiently
-				if rand.float32() < 0.33 {
-					element_spawn(&g_app_state.elements, element)
-					element.debug_state = .Stem // should spawn do this automatically?
-				} else {
-					if rand.float32() < 0.95 {
-						element.debug_state = .Node
-					} else {
-						element.debug_state = .Petal
-					}
-				}
+				element.debug_state = .Node
 			}
 		case .Node:
 			element.debug_state = .Bud
-			if rand.float32() < 0.88 do element_spawn(&g_app_state.elements, element, -math.τ / 9)
-			if rand.float32() < 0.77 do element_spawn(&g_app_state.elements, element, math.τ / 9)
+			element_spawn(&g_app_state.elements, element, -math.τ / 9)
+			element_spawn(&g_app_state.elements, element, math.τ / 9)
 			element.debug_state = .Stem
 		case .Stem:
 			// Terminal State
 			// Todo: auxilary growth
 			element_dye(element, BROWN)
-			element.target_length += 0.001
-			element.target_thickness += 0.005
+			element.target_length += 0.00001
+			element.target_thickness += 0.00005
 		case .Petal:
 			// Terminal state
 			element_dye(element, PINK)
@@ -303,7 +283,7 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 	rg.frame_begin(&r)
 
 	rg.pass_begin(&r, {clear = true, color = BG_COLOR}, rg.Pipeline_Basic{projection = ortho_proj})
-	if rg.camera_mode(&r, camera, f32(dpr)) {
+	if rg.camera_mode(&r, camera) {
 		draw_plant(app_state, root_element)
 		// TODO: add back the ground and calculate its world space
 		// rc_draw_rect(

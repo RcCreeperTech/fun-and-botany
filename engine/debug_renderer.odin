@@ -227,7 +227,6 @@ rc_initialize :: proc(using ctx: ^DebugRenderer_Context) {
 }
 
 debug_renderer_flush :: proc(using ctx: ^DebugRenderer_Context, ren: ^rg.Renderer_State) {
-	fmt.println("Flushing", ren)
 	for pass in ren.passes {
 		pass_commands := ren.commands[pass.commands_begin:pass.commands_end]
 

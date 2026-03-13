@@ -161,7 +161,6 @@ encoder_expect :: #force_inline proc(encoder: ^Command_Encoder, $T: typeid) {
 }
 
 encoder_flush :: proc(self: ^Renderer_State) {
-	fmt.printfln("I am getting flushed")
 	pass := _get_pass(self)
 	switch pipeline in pass.pipeline {
 	case Pipeline_Basic:
@@ -180,9 +179,6 @@ encoder_flush :: proc(self: ^Renderer_State) {
 
 		append(&self.commands, encoded)
 
-		clear(&self.transform_stack)
-		self.current_transform = 1
-		self.current_texture = DEFAULT_TEXTURE
 	case Pipeline_Soft_Shapes:
 		encoder_expect(self, Pipeline_Soft_Shapes)
 		encoded: Cmd_Draw_Soft
@@ -193,8 +189,6 @@ encoder_flush :: proc(self: ^Renderer_State) {
 
 		append(&self.commands, encoded)
 
-		clear(&self.transform_stack)
-		self.current_transform = 1
 	case Pipeline_Soft_Composite:
 		encoder_expect(&self.encoder, Pipeline_Soft_Composite)
 		unimplemented()
@@ -266,6 +260,10 @@ pass_end :: proc(self: ^Renderer_State) {
 	assert(len(self.passes) != 0, "There is no pass to end!")
 
 	encoder_flush(self)
+
+	clear(&self.transform_stack)
+	self.current_transform = 1
+	self.current_texture = DEFAULT_TEXTURE
 
 	pass := _get_pass(self)
 	// Update the end index
@@ -499,17 +497,16 @@ Camera :: struct {
 	zoom:        f32,
 }
 
-camera_screen_to_world :: proc(camera: Camera, pos: Vec2, dpr: f32) -> (out: Vec2) {
-	t := la.inverse(camera_transform(camera, dpr))
+camera_screen_to_world :: proc(camera: Camera, pos: Vec2) -> (out: Vec2) {
+	t := la.inverse(camera_transform(camera))
 	return (t * Vec3{pos.x, pos.y, 1}).xy
 }
 
-camera_transform :: proc(camera: Camera, dpr: f32) -> (t: Matrix3) {
+camera_transform :: proc(camera: Camera) -> (t: Matrix3) {
 	y_flip: Vec2 = {1, -1}
 	t =
 		translate(camera.offset) *
 		rotate(camera.orientation) *
-		scale(dpr) *
 		scale(camera.zoom) *
 		scale(y_flip) *
 		translate(-camera.target)
@@ -518,12 +515,12 @@ camera_transform :: proc(camera: Camera, dpr: f32) -> (t: Matrix3) {
 
 // NOTE: This style of function allows us to treat this as a scoped function.
 @(deferred_in = rc_end_camera_mode)
-camera_mode :: proc(self: ^Renderer_State, camera: Camera, dpr: f32) -> (dummy := true) {
-	push_transform(self, camera_transform(camera, dpr))
+camera_mode :: proc(self: ^Renderer_State, camera: Camera) -> (dummy := true) {
+	push_transform(self, camera_transform(camera))
 	return
 }
 
-rc_end_camera_mode :: proc(self: ^Renderer_State, _: Camera, _: f32) {
+rc_end_camera_mode :: proc(self: ^Renderer_State, _: Camera) {
 	pop_transform(self)
 }
 
