@@ -49,6 +49,8 @@ export function setupDefaultImports(wmi, exports, odin_ctx) {
       exp: Math.exp,
       ldexp: (x, exp) => x * Math.pow(2, exp),
 
+      tick_now: () => performance.now(),
+
       rand_bytes: (ptr, len) => {
         const view = new Uint8Array(wmi.memory.buffer, Number(ptr), Number(len))
         crypto.getRandomValues(view)

@@ -109,13 +109,15 @@ VM_Value :: union {
 
 VM_Label :: distinct u8
 
+// TODO: Parent variants for relevent parameters
 VM_Param :: enum u8 {
 	State,
-	Thickness, // TODO: Parent variant
-	Length, // TODO: Parent variant
-	Color, // TODO: Parent variant
+	Thickness,
+	Length,
+	Color,
 	Growth_Rate,
-	Joint_Compliance,
+	Stiffness,
+	Density,
 }
 vm_get_param :: proc(
 	vm: ^VM,
@@ -136,8 +138,10 @@ vm_get_param :: proc(
 		return element.color, .None
 	case .Growth_Rate:
 		return element.growth_rate, .None
-	case .Joint_Compliance:
-		return element.joint_compliance, .None
+	case .Stiffness:
+		return element.stiffness, .None
+	case .Density:
+		return element.density, .None
 	}
 	return nil, .Unknown_Parameter_Access
 }
@@ -169,10 +173,14 @@ vm_set_param :: proc(
         element.target_color = v
 	case .Growth_Rate:
 		return .Readonly_Parameter
-	case .Joint_Compliance:
+	case .Stiffness:
 		v, ok := value.(f32)
 		if !ok do return .Parameter_Type_Mistmatch
-        element.joint_compliance = v
+        element.target_stiffness = v
+	case .Density:
+		v, ok := value.(f32)
+		if !ok do return .Parameter_Type_Mistmatch
+        element.target_density = v
 	}
 	return .None
 }

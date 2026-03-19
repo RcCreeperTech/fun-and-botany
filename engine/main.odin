@@ -2,35 +2,43 @@
 package web_testing
 
 import wgl "WebGL"
+import "base:intrinsics"
+import "base:runtime"
 import hm "core:container/handle_map"
 import "core:fmt"
 import "core:math"
 import la "core:math/linalg"
 import rg "renderer"
+import b2 "vendor:box2d"
 
-SIM_MAX_DEPTH :: 10
+BOX2D_DEBUG_DRAW :: false
+SIM_GROUND_THICKNESS :: 200
+SIM_MAX_DEPTH :: 8
 
-// QUESTION: Should these be mapped into some memory allocated by the platform.
-// This could enable hot reloads for the odin code. Which would be kind of sick.
 ApplicationState :: struct {
-	cumulative_time:       f64,
-	window_width:          i32,
-	window_height:         i32,
-	dpr:                   f64,
-	ortho_proj: la.Matrix4f32,
-	r:                   rg.Renderer_State,
-	num_substeps:          int `ui:"name='Substeps',min=0,max=10"`,
-	seperation_compliance: f32 `ui:"name='Seperation Compliance',min=0,max=1"`,
-	elements:              ElementMap,
-	root_element:          Handle,
-	camera:                rg.Camera,
-	debug_rc: DebugRenderer_Context,
+	cumulative_time:          f64,
+	window_width:             i32,
+	window_height:            i32,
+	dpr:                      f64,
+	ortho_proj:               la.Matrix4f32,
+	r:                        rg.Renderer_State,
+	elements:                 ElementMap,
+	root_element:             Handle,
+	camera:                   rg.Camera,
+	debug_rc:                 DebugRenderer_Context,
+	physics_world:            b2.WorldId,
+	physics_world_debug_draw: b2.DebugDraw,
+	ctx:                      runtime.Context,
+	ground:                   b2.BodyId,
 }
 
 // TODO: @(private="file")
 g_app_state: ApplicationState
 
 main :: proc() {
+	app := &g_app_state
+
+	app.ctx = context
 	if !wgl.CreateCurrentContextById(
 		"gl-canvas",
 		{.desynchronized, .disableAlpha, .preserveDrawingBuffer},
@@ -43,43 +51,100 @@ main :: proc() {
 	wgl.GetESVersion(&esmajor, &esminor)
 	fmt.printfln("Created graphics context: WebGL %d.%d ES %d.%d", major, minor, esmajor, esminor)
 
-	rg.init(&g_app_state.r, context.allocator)
-	rc_initialize(&g_app_state.debug_rc)
+	rg.init(&app.r, context.allocator)
+	rc_initialize(&app.debug_rc)
+	when BOX2D_DEBUG_DRAW {
+		setup_box2d_debug_draw_vtable(app)
+	}
 
-	g_app_state.camera = rg.Camera {
+	app.camera = rg.Camera {
 		zoom = SIM_PIXELS_PER_METER,
 	}
 
-	g_app_state.seperation_compliance = 0.00008
-	g_app_state.num_substeps = 8
+	{
+		world_def := b2.DefaultWorldDef()
+		world_def.gravity = {0, -9.81}
+		world_def.enableSleep = false
+		world_def.enableContinuous = false
+		app.physics_world = b2.CreateWorld(world_def)
+	}
 
-	g_app_state.root_element = hm.add(
-		&g_app_state.elements,
-		Sim_Element {
-			color = DARKGREEN,
-			target_color = DARKGREEN,
-			debug_state = .Bud,
-			joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
-			growth_rate = SIM_BASELINE_GROWTH_RATE,
-			inv_mass = 1,
-			target_length = 1,
-			target_thickness = 0.4,
-		},
-	)
+	{
+		box := b2.MakeBox(SIM_GROUND_THICKNESS / 2, SIM_GROUND_THICKNESS / 2)
+		shape_def := b2.DefaultShapeDef()
+		shape_def.filter.categoryBits = u64(Collision_Categories.Ground)
+		body_def := b2.DefaultBodyDef()
+		body_def.position = {0, -SIM_GROUND_THICKNESS / 2}
+		body_def.type = .staticBody
+		app.ground = b2.CreateBody(app.physics_world, body_def)
+		_ = b2.CreatePolygonShape(app.ground, shape_def, box)
+	}
+
+	root := Sim_Element {
+		color            = DARKGREEN,
+		target_color     = DARKGREEN,
+		debug_state      = .Bud,
+		growth_rate      = SIM_BASELINE_GROWTH_RATE,
+		target_length    = 1,
+		target_thickness = 0.4,
+	}
+
+	{
+		shape_def := b2.DefaultShapeDef()
+		shape_def.density = WOOD_TISSUE.density
+		shape_def.filter.categoryBits = u64(Collision_Categories.Element)
+		shape_def.filter.maskBits = u64(Collision_Categories.Ground)
+		body_def := b2.DefaultBodyDef()
+		body_def.type = .dynamicBody
+		root.body = b2.CreateBody(app.physics_world, body_def)
+		root.shape = b2.CreateCapsuleShape(root.body, shape_def, {})
+	}
+
+	{
+		joint_def := b2.DefaultRevoluteJointDef()
+		when BOX2D_DEBUG_DRAW do joint_def.drawSize = 0.08
+		joint_def.bodyIdA = app.ground
+		joint_def.bodyIdB = root.body
+		joint_def.localAnchorA = {0, SIM_GROUND_THICKNESS / 2}
+		joint_def.localAnchorB = 0
+		joint_def.targetAngle = 0
+		joint_def.enableSpring = true
+		joint_def.hertz = WOOD_TISSUE.freq
+		joint_def.dampingRatio = WOOD_TISSUE.damping
+		joint_def.collideConnected = false
+		root.joint = b2.CreateRevoluteJoint(app.physics_world, joint_def)
+	}
+
+	app.root_element = hm.add(&app.elements, root)
+
 }
 
 @(export)
 step :: proc(delta_time: f64) -> (keep_going: bool) {
-	g_app_state.cumulative_time += delta_time
+	app := &g_app_state
+	free_all(context.temp_allocator)
+	app.cumulative_time += delta_time
 	// Reset after 1 hour (3600 seconds) to stay in high-precision range
-	if g_app_state.cumulative_time > 3600 {
-		g_app_state.cumulative_time = 0
+	if app.cumulative_time > 3600 {
+		app.cumulative_time = 0
 	}
 
 	center := window_center()
 
-	sim_update(&g_app_state, f32(delta_time))
-	sim_render(&g_app_state, f32(delta_time))
+	sim_update(app, f32(delta_time))
+	sim_render(app, f32(delta_time))
+
+	when BOX2D_DEBUG_DRAW {
+		rg.pass_begin(
+			&app.r,
+			{clear = false, color = BG_COLOR},
+			rg.Pipeline_Basic{projection = app.ortho_proj},
+		)
+		if rg.camera_mode(&app.r, app.camera) {
+			b2.World_Draw(app.physics_world, &app.physics_world_debug_draw)
+		}
+		rg.pass_end(&app.r)
+	}
 
 	debug_renderer_flush(&g_app_state.debug_rc, &g_app_state.r)
 
@@ -114,4 +179,132 @@ cmplx_normalize :: proc(z: complex64) -> complex64 {
 	if l2 <= 0 do return z
 	inv_len := 1 / math.sqrt(l2)
 	return complex(real(z) * inv_len, imag(z) * inv_len)
+}
+
+setup_box2d_debug_draw_vtable :: proc(app: ^ApplicationState) {
+	dbg := &app.physics_world_debug_draw
+	dbg^ = b2.DefaultDebugDraw()
+	dbg.drawShapes = true
+	dbg.drawJoints = false
+	dbg.drawJointExtras = false
+	dbg.userContext = app
+	DEBUG_DRAW_OPACITY :: 0x1f
+	dbg.DrawSolidPolygonFcn = proc "c" (
+		transform: b2.Transform,
+		vertices: [^]Vec2,
+		vertexCount: i32,
+		radius: f32,
+		color: b2.HexColor,
+		ctx: rawptr,
+	) {
+		app := cast(^ApplicationState)ctx
+		context = app.ctx
+
+		raw := u32(color)
+		c: Color
+		c.r = u8(raw >> 16)
+		c.g = u8(raw >> 8)
+		c.b = u8(raw >> 0)
+		c.a = DEBUG_DRAW_OPACITY
+
+		count := int(vertexCount)
+		rg.encoder_ensure_space_basic(&app.r, count, (count - 2) * 3)
+
+		// Pre-transform and upload all vertices once
+		base := u16(len(app.r.vertices))
+		for i in 0 ..< count {
+			v := vertices[i]
+			// Apply Box2D transform: rotate then translate
+			rotated := Vec2 {
+				transform.q.c * v.x - transform.q.s * v.y,
+				transform.q.s * v.x + transform.q.c * v.y,
+			}
+			world := rotated + transform.p
+			rg.append_vertex(&app.r, rg.Vertex2D{pos = world, color = c})
+		}
+
+		// Fan triangulation from vertex 0 — valid for Box2D's convex polygons
+		for i in 1 ..< count - 1 {
+			rg.append_index(&app.r, base)
+			rg.append_index(&app.r, base + u16(i))
+			rg.append_index(&app.r, base + u16(i + 1))
+		}
+	}
+	dbg.DrawPolygonFcn = proc "c" (
+		vertices: [^]Vec2,
+		vertexCount: i32,
+		color: b2.HexColor,
+		ctx: rawptr,
+	) {
+		app := cast(^ApplicationState)ctx
+		context = app.ctx
+		raw := u32(color)
+		c: Color
+		c.r = u8(raw >> 16)
+		c.g = u8(raw >> 8)
+		c.b = u8(raw >> 0)
+		c.a = DEBUG_DRAW_OPACITY
+
+		for i in 0 ..< vertexCount {
+			a := vertices[i]
+			b := vertices[(i + 1) % vertexCount]
+			rg.draw_line(&app.r, a, b, 1.0, c)
+		}
+	}
+	dbg.DrawSolidCapsuleFcn = proc "c" (
+		p1, p2: Vec2,
+		radius: f32,
+		color: b2.HexColor,
+		ctx: rawptr,
+	) {
+		app := cast(^ApplicationState)ctx
+		context = app.ctx
+		raw := u32(color)
+		c: Color
+		c.r = u8(raw >> 16)
+		c.g = u8(raw >> 8)
+		c.b = u8(raw >> 0)
+		c.a = DEBUG_DRAW_OPACITY
+		rg.draw_wedge(&app.r, p1, p2, radius, radius, c)
+		rg.draw_circle(&app.r, p1, radius, color = c)
+		rg.draw_circle(&app.r, p2, radius, color = c)
+	}
+	dbg.DrawSegmentFcn = proc "c" (p1, p2: Vec2, color: b2.HexColor, ctx: rawptr) {
+		app := cast(^ApplicationState)ctx
+		context = app.ctx
+		raw := u32(color)
+		c: Color
+		c.r = u8(raw >> 16)
+		c.g = u8(raw >> 8)
+		c.b = u8(raw >> 0)
+		c.a = DEBUG_DRAW_OPACITY
+		rg.draw_line(&app.r, p1, p2, 0.05, color = c)
+	}
+	dbg.DrawSolidCircleFcn = proc "c" (
+		transform: b2.Transform,
+		radius: f32,
+		color: b2.HexColor,
+		ctx: rawptr,
+	) {
+		app := cast(^ApplicationState)ctx
+		context = app.ctx
+		raw := u32(color)
+		c: Color
+		c.r = u8(raw >> 16)
+		c.g = u8(raw >> 8)
+		c.b = u8(raw >> 0)
+		c.a = DEBUG_DRAW_OPACITY
+		rg.draw_circle(&app.r, transform.p, radius, color = c)
+	}
+	dbg.DrawCircleFcn = proc "c" (center: Vec2, radius: f32, color: b2.HexColor, ctx: rawptr) {
+		app := cast(^ApplicationState)ctx
+		context = app.ctx
+		raw := u32(color)
+		c: Color
+		c.r = u8(raw >> 16)
+		c.g = u8(raw >> 8)
+		c.b = u8(raw >> 0)
+		c.a = DEBUG_DRAW_OPACITY
+		rg.draw_circle(&app.r, center, radius, color = c)
+	}
 }

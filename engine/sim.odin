@@ -1,159 +1,61 @@
-#+feature using-stmt
 package web_testing
 
+import "base:intrinsics"
 import hm "core:container/handle_map"
 import "core:math"
 import la "core:math/linalg"
-import "core:math/rand"
 import rg "renderer"
+import b2 "vendor:box2d"
 
 SIM_DEBUG_RENDERING :: false
-SIM_BASELINE_JOINT_COMPLIANCE :: 0.000001
 SIM_DYE_RATE :: 1.7 // TODO: Per cell
 SIM_BASELINE_GROWTH_RATE :: 0.5
 SIM_END_GROWTH_RATE :: 0.01
 SIM_CELL_AGING_RATE :: 0.7
 SIM_PIXELS_PER_METER :: 100
 
-E_WOOD :: f32(2_000_000) // 2 GPa in Pa
-E_STEM :: f32(300_000) // 300 MPa
-E_LEAF :: f32(50_000) // 50 MPa
-E_PETAL :: f32(5_000) // 5 MPa
+TissueMaterial :: struct {
+	density, freq, damping: f32
+}
 
-WOOD_DENSITY :: .80 // Kg/M^2
-LEAF_DENSITY :: 600 // Kg/M^2
-PETAL_DENSITY :: 200 // Kg/M^2
+WOOD_TISSUE :: TissueMaterial {7, 28, 1}
+STEM_TISSUE :: TissueMaterial {1.5, 5, 0.675}
+LEAF_TISSUE :: TissueMaterial {0.2, 2, 0.5}
+PETAL_TISSUE :: TissueMaterial {0.05, 1.25, 0.33}
 
 Matrix3 :: la.Matrix3x3f32
 Vec2 :: [2]f32
 Vec3 :: [3]f32
 
-sim_update :: proc(using app_state: ^ApplicationState, delta_time: f32) {
+Collision_Categories :: enum u64 {
+	Ground  = 0x00000001,
+	Element = 0x00000002,
+}
+
+sim_update :: proc(app: ^ApplicationState, delta_time: f32) {
 	// TODO: Inject resources into the root and set any global sim parameters
-	sim_tick_cells(app_state, delta_time)
-	sim_execute_debug_plant_test_code(app_state, delta_time)
-	sim_step_physics(app_state, delta_time)
+	sim_execute_debug_plant_test_code(app, delta_time)
+	sim_tick_cells(app, delta_time)
+	b2.World_Step(app.physics_world, f32(delta_time), 4)
 }
 
-sim_tick_cells :: proc(using app_state: ^ApplicationState, delta_time: f32) {
-	it := hm.iterator_make(&g_app_state.elements)
-	for e, _ in hm.iterate(&it) do tick(e, delta_time)
-	// TODO: gate growth by resource consumption
-	tick :: proc(using self: ^Sim_Element, dt: f32) {
-		growth_rate = exp_decay(growth_rate, SIM_END_GROWTH_RATE, SIM_CELL_AGING_RATE, dt)
-		thickness = exp_decay(thickness, target_thickness, growth_rate, dt)
-		length = exp_decay(length, target_length, growth_rate, dt)
-		ftarget := to_fcolor(target_color)
-		fcolor := to_fcolor(color)
-		for i in 0 ..< 4 {
-			color[i] = u8(exp_decay(fcolor[i], ftarget[i], SIM_DYE_RATE, dt) * 255)
-		}
-		return
-	}
-}
+sim_tick_cells :: proc(app: ^ApplicationState, dt: f32) {
+	it := hm.iterator_make(&app.elements)
+	for e, _ in hm.iterate(&it) {
+		e.growth_rate = exp_decay(e.growth_rate, SIM_END_GROWTH_RATE, SIM_CELL_AGING_RATE, dt)
+		e.thickness = exp_decay(e.thickness, e.target_thickness, e.growth_rate, dt)
+		e.length = exp_decay(e.length, e.target_length, e.growth_rate, dt)
+		e.color = exp_decay(e.color, e.target_color, SIM_DYE_RATE, dt)
 
-// Run physics substeps for the simulated world
-sim_step_physics :: proc(using app_state: ^ApplicationState, delta_time: f32) {
-	dt: f32 = delta_time / f32(num_substeps)
-	for _ in 0 ..< num_substeps {
-		sim_integrate_bodies(&elements, dt)
-		sim_solve_branch_constraints(&elements, root_element, dt)
-		sim_solve_ground_constraint(app_state)
-		sim_update_body_velocities(&elements, dt)
-	}
+		capsule := b2.Capsule{0, {0, e.length}, e.thickness}
+		b2.Shape_SetCapsule(e.shape, capsule)
+		b2.Body_ApplyMassFromShapes(e.body)
 
-	sim_integrate_bodies :: proc(elements: ^ElementMap, dt: f32) {
-		it := hm.iterator_make(elements)
-		for e, h in hm.iterate(&it) {
-			if e.inv_mass == 0 do continue
-
-			e.velocity.y -= 9.81 * dt
-			e.old_position = e.position
-			e.position += e.velocity * dt
-		}
-	}
-
-	sim_update_body_velocities :: proc(elements: ^ElementMap, dt: f32) {
-		it := hm.iterator_make(elements)
-		damping_per_frame :: 0.85
-		damping_per_substep := math.pow(damping_per_frame, 1.0 / f32(g_app_state.num_substeps)) // FIXME!!!!!!!!!!!!!!
-		for e, h in hm.iterate(&it) {
-			e.velocity = (e.position - e.old_position) / dt
-			e.velocity *= damping_per_substep
-		}
-	}
-
-	sim_solve_ground_constraint :: proc(using sim_state: ^ApplicationState) {
-		it := hm.iterator_make(&elements)
-		for e, h in hm.iterate(&it) {
-			if h == root_element do continue
-
-			error := e.position.y - e.thickness // negative = below ground
-			if error >= 0 do continue
-			e.position.y -= error // push up to y = thickness
-		}
-	}
-
-	sim_back_propagate_ground_forces :: proc(elements: ^ElementMap, h: Handle) {
-		e, ok := hm.get(elements, h)
-		if !ok do return
-
-		// Leaves first, then propagate upward on the way back
-		it := e.first_child
-		for {
-			child := hm.get(elements, it) or_break
-			sim_back_propagate_ground_forces(elements, child.handle)
-			it = child.right
-		}
-
-		parent, ok2 := hm.get(elements, e.parent)
-		if !ok2 || parent.inv_mass == 0 do return // don't move pinned root
-
-		base_to_tip := e.position - parent.position
-		current_length := la.length(base_to_tip)
-		if current_length == 0 do return
-
-		dir := base_to_tip / current_length
-		error := e.length - current_length
-
-		// Move parent only — rigid, no compliance needed here
-		parent.position -= dir * error
-	}
-
-	sim_solve_branch_constraints :: proc(
-		elements: ^ElementMap,
-		h: Handle,
-		dt: f32,
-		parent: ^Sim_Element = nil,
-		parent_angle: f32 = 0,
-	) {
-		self, ok := hm.get(elements, h)
-		if !ok do return
-
-		parent_position: Vec2 = 0 if parent == nil else parent.position
-		parent_angle: f32 = math.τ / 4 if parent == nil else parent_angle
-
-		target_angle := parent_angle + self.rest_angle
-		s, c := math.sincos(target_angle)
-		target_pos := parent_position + Vec2{c, s} * self.length
-
-		correction := target_pos - self.position
-		alpha := self.joint_compliance / (dt * dt)
-		lambda := 1.0 / (self.inv_mass + alpha) // parent is anchor, inv_mass = 0
-		self.position += correction * lambda * self.inv_mass
-
-		base_to_tip := self.position - parent_position
-		final_angle := math.atan2(base_to_tip.y, base_to_tip.x)
-
-		it := self.first_child
-		for {
-			child := hm.get(elements, it) or_break
-			sim_solve_branch_constraints(elements, child.handle, dt, self, final_angle)
-			it = child.right
+		if parent, ok := hm.get(&app.elements, e.parent); ok {
+			b2.Joint_SetLocalAnchorA(e.joint, {0, parent.length})
 		}
 	}
 }
-
 
 Handle :: hm.Handle32
 ElementMap :: hm.Static_Handle_Map(1024, Sim_Element, Handle)
@@ -168,69 +70,89 @@ Sim_Element :: struct {
 	handle:                  Handle,
 	parent, left, right:     Handle,
 	first_child, last_child: Handle,
-	// Physics State
-	old_position:            Vec2,
-	position:                Vec2,
-	velocity:                Vec2,
-	rest_angle:              f32, // Relative to the parent's angle
-	inv_mass:      f32,
-	joint_compliance:        f32,
-	length:                  f32,
-	thickness:               f32,
-	density: 				 f32,
-	// Growth Parameters
+	//
 	target_thickness:        f32,
 	target_length:           f32,
 	target_color:            Color,
-	growth_rate:             f32,
+	target_stiffness:		 f32,
+	target_density:		     f32,
+	thickness:               f32,
+	length:                  f32,
 	color:                   Color,
-	// Other Data
+	stiffness:               f32,
+	density:                 f32,
+	growth_rate:             f32,
 	depth:                   u8,
 	debug_state:             Sim_Debug_GrowthState, // TODO: Elements will be state machines with finite memory
+	// Physics handles
+	body:                    b2.BodyId,
+	shape:                   b2.ShapeId,
+	joint:                   b2.JointId,
 }
 
-element_spawn :: proc(elements: ^ElementMap, e: ^Sim_Element, theta: f32 = 0, mass: f32 = 1) {
+sim_element_spawn :: proc(
+	app: ^ApplicationState,
+	parent: ^Sim_Element,
+	theta: f32 = 0,
+	mass: f32 = 1,
+) {
+	parent_tip_local := Vec2{0, parent.length}
+	parent_transform := b2.Body_GetTransform(parent.body)
+
+	shape_def := b2.DefaultShapeDef()
+	shape_def.density = WOOD_TISSUE.density // TODO make this a parameter
+	shape_def.filter.categoryBits = u64(Collision_Categories.Element)
+	shape_def.filter.maskBits = u64(Collision_Categories.Ground)
+	body_def := b2.DefaultBodyDef()
+	body_def.type = .dynamicBody
+	body_def.position = b2.TransformPoint(parent_transform, parent_tip_local)
+	orientation := b2.MulRot(b2.MakeRot(theta), b2.Body_GetRotation(parent.body))
+	body_def.rotation = orientation
+	body := b2.CreateBody(app.physics_world, body_def)
+	shape := b2.CreateCapsuleShape(body, shape_def, {0, {0, 0.01}, 0.01})
+
+	joint_def := b2.DefaultRevoluteJointDef()
+	when BOX2D_DEBUG_DRAW do joint_def.drawSize = 0.08
+	joint_def.bodyIdA = parent.body
+	joint_def.bodyIdB = body
+	joint_def.localAnchorA = parent_tip_local
+	joint_def.localAnchorB = 0
+	joint_def.targetAngle = theta
+	joint_def.enableSpring = true
+	joint_def.hertz = WOOD_TISSUE.freq // TODO: parameter
+	joint_def.dampingRatio = WOOD_TISSUE.damping // TODO: Parameter
+	joint_def.collideConnected = false
+	joint := b2.CreateRevoluteJoint(app.physics_world, joint_def)
+
 	child := hm.add(
-	elements,
+	&app.elements,
 	Sim_Element {
-		parent           = e.handle, // point to the parent
-		right            = e.first_child, // link into the head of the sibling dll
-		position         = e.position,
-		rest_angle       = theta,
-		inv_mass         = 1 / mass if mass != 0 else 0,
-		joint_compliance = SIM_BASELINE_JOINT_COMPLIANCE,
+		parent           = parent.handle, // point to the parent
+		right            = parent.first_child, // link into the head of the sibling dll
+		target_length    = parent.target_length * 0.95,
+		length           = 0.01,
+		target_thickness = parent.target_thickness * 0.8,
+		thickness        = 0.01,
+		target_color     = parent.target_color,
+		color            = parent.color,
 		growth_rate      = SIM_BASELINE_GROWTH_RATE,
-		depth            = e.depth + 1,
-		color            = e.color,
-		target_color     = e.target_color,
-		debug_state      = e.debug_state,
-		target_thickness = e.target_thickness * 0.8,
-		target_length    = e.target_length * 0.95,
+		depth            = parent.depth + 1,
+		debug_state      = parent.debug_state,
+		body             = body,
+		shape            = shape,
+		joint            = joint,
 	},
 	)
 
-	if first, ok := hm.get(elements, e.first_child); ok {
+	if first, ok := hm.get(&app.elements, parent.first_child); ok {
 		first.left = child
-		e.first_child = child
+		parent.first_child = child
 	} else { 	// parent has no children
-		e.first_child, e.last_child = child, child
+		parent.first_child, parent.last_child = child, child
 	}
 }
 
-element_strengthen :: proc(
-	using self: ^Sim_Element,
-	app_state: ^ApplicationState,
-	amount: f32,
-	set_immovable := false,
-) {
-	unimplemented("TODO: joint strengthening")
-}
-element_dye :: proc(using self: ^Sim_Element, target: Color) {
-	self.target_color = target
-}
-
-
-sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, delta_time: f32) {
+sim_execute_debug_plant_test_code :: proc(app: ^ApplicationState, dt: f32) {
 	it := hm.iterator_make(&g_app_state.elements)
 	for element, h in hm.iterate(&it) {
 
@@ -245,63 +167,98 @@ sim_execute_debug_plant_test_code :: proc(using app_state: ^ApplicationState, de
 			}
 		case .Node:
 			element.debug_state = .Bud
-			element_spawn(&g_app_state.elements, element, -math.τ / 9)
-			element_spawn(&g_app_state.elements, element, math.τ / 9)
+			sim_element_spawn(app, element, -math.τ / 9)
+			sim_element_spawn(app, element, math.τ / 9)
 			element.debug_state = .Stem
 		case .Stem:
 			// Terminal State
 			// Todo: auxilary growth
-			element_dye(element, BROWN)
+			element.target_color = BROWN
 			element.target_length += 0.00001
 			element.target_thickness += 0.00005
 		case .Petal:
 			// Terminal state
-			element_dye(element, PINK)
+			element.target_color = PINK
 		}
 	}
 }
 
+@(private)
+IS_FLOAT :: intrinsics.type_is_float
+@(private)
+ELEM_TYPE :: intrinsics.type_elem_type
+@(private)
+IS_ARRAY :: intrinsics.type_is_array
+
+exp_decay :: proc {
+	exp_decay_float,
+	exp_decay_color,
+}
 // Lerp that respects delta time
 // Useful range approx. 1 to 25, from slow to fast
-exp_decay :: proc(a, b: $T, decay, dt: f32) -> T {
-	return b + (a - b) * math.exp(-decay * dt)
+exp_decay_float :: proc(a, b: $T, decay, dt: f32) -> (out: T) where IS_FLOAT(ELEM_TYPE(T)) {
+	when IS_ARRAY(T) {
+		for i in 0 ..< len(T) {
+			out[i] = b[i] + (a[i] - b[i]) * math.exp(-decay * dt)
+		}
+	} else {
+		out = b + (a - b) * math.exp(-decay * dt)
+	}
+	return
+}
+exp_decay_color :: proc(a, b: Color, decay, dt: f32) -> (color: Color) {
+	fa, fb := to_fcolor(a), to_fcolor(b)
+	for i in 0 ..< 4 {
+		color[i] = u8(exp_decay_float(fa[i], fb[i], decay, dt) * 255)
+	}
+	return
 }
 
-sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
+sim_render :: proc(app: ^ApplicationState, dt: f32) {
 	{
 		lo, hi: Vec2 = math.INF_F32, -math.INF_F32
-		it := hm.iterator_make(&elements)
+		it := hm.iterator_make(&app.elements)
 		for e, _ in hm.iterate(&it) {
-			lo.x = min(e.position.x, lo.x)
-			lo.y = min(e.position.y, lo.y)
-			hi.x = max(e.position.x, hi.x)
-			hi.y = max(e.position.y, hi.y)
+			tip_local := Vec2{0, e.length}
+			transform := b2.Body_GetTransform(e.body)
+			position := b2.TransformPoint(transform, tip_local)
+
+			lo.x = min(position.x, lo.x)
+			lo.y = min(position.y, lo.y)
+			hi.x = max(position.x, hi.x)
+			hi.y = max(position.y, hi.y)
 		}
 		camera_target := (hi + lo) / 2
-		camera.target = exp_decay(camera.target, camera_target, 5, dt)
+		app.camera.target = exp_decay(app.camera.target, camera_target, 5, dt)
 	}
-	rg.frame_begin(&r)
+	rg.frame_begin(&app.r)
 
-	rg.pass_begin(&r, {clear = true, color = BG_COLOR}, rg.Pipeline_Basic{projection = ortho_proj})
-	if rg.camera_mode(&r, camera) {
-		draw_plant(app_state, root_element)
-		// TODO: add back the ground and calculate its world space
-		// rc_draw_rect(
-		// 	&rc,
-		// 	{0, origin.y},
-		// 	{f32(window_width), f32(window_height) * 0.05},
-		// 	DARKGREEN,
-		// )
+	rg.pass_begin(
+		&app.r,
+		{clear = true, color = BG_COLOR},
+		rg.Pipeline_Basic{projection = app.ortho_proj},
+	)
+	if rg.camera_mode(&app.r, app.camera) {
+		draw_plant(app, app.root_element)
+
+		extent: Vec2 = SIM_GROUND_THICKNESS
+		rg.draw_rect(&app.r, 0 - {extent.x*0.5, extent.y}, extent, color = {3, 58, 34, 255})
 	}
-	rg.pass_end(&r)
+	rg.pass_end(&app.r)
 
-	rg.frame_end(&r)
+	rg.frame_end(&app.r)
+
+	draw_plant :: proc(app: ^ApplicationState, h: Handle, prev: ^Sim_Element = nil) {
+		if e, ok := hm.get(&app.elements, h); ok {
+			tip_local := Vec2{0, e.length}
+			transform := b2.Body_GetTransform(e.body)
+			position := b2.TransformPoint(transform, tip_local)
+
+			rg.draw_circle(&app.r, position, e.thickness, color = e.color)
 
 
-	draw_plant :: proc(using sim_state: ^ApplicationState, h: Handle, prev: ^Sim_Element = nil) {
-		if e, ok := hm.get(&elements, h); ok {
-			rg.draw_circle(&r, e.position, e.thickness, color = e.color)
 			prev := prev
+			prev_position: Vec2
 			// Inject a dummy prev for the origin segment
 			if prev == nil {
 				dummy := Sim_Element {
@@ -309,11 +266,17 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 					color     = e.color,
 				}
 				prev = &dummy
+			} else {
+				prev_tip_local := Vec2{0, prev.length}
+				prev_transform := b2.Body_GetTransform(prev.body)
+				prev_position = b2.TransformPoint(prev_transform, prev_tip_local)
 			}
+
+
 			rg.draw_wedge(
-				&r,
-				prev.position,
-				e.position,
+				&app.r,
+				prev_position,
+				position,
 				prev.thickness,
 				e.thickness,
 				{prev.color, prev.color, e.color, e.color},
@@ -326,11 +289,10 @@ sim_render :: proc(using app_state: ^ApplicationState, dt: f32) {
 
 			it := e.first_child
 			for {
-				child := hm.get(&elements, it) or_break
-				draw_plant(sim_state, child.handle, e)
+				child := hm.get(&app.elements, it) or_break
+				draw_plant(app, child.handle, e)
 				it = child.right
 			}
 		}
 	}
-
 }
