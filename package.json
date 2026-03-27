@@ -16,6 +16,7 @@
     "build:engine-release": "odin build engine -target=js_wasm32 -build-mode:lib -o:speed -out:public/engine.wasm"
   },
   "dependencies": {
+    "@dnd-kit/solid": "^0.3.2",
     "solid": "^0.2.1"
   }
 }
