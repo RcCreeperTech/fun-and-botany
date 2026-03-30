@@ -22,17 +22,18 @@ function Block(props) {
     },
   });
 
+  const topEdge = useDroppable({ id: `top:${props.id}` });
+  const bottomEdge = useDroppable({ id: `bottom:${props.id}` });
+
   return (
     <div
       style={{
         display: "flex",
         "flex-direction": "column",
-        padding: "0.4rem",
-        "padding-bottom": "3rem",
         margin: "1rem 0.4rem",
         background: "red",
-        border: "1px solid white",
         width: "fit-content",
+        border: "1px solid white"
       }}
       ref={sortable.ref}
     >
@@ -40,29 +41,53 @@ function Block(props) {
         style={{
           display: "inline-block",
           padding: "0 0.5rem",
-          margin: "0.2rem 0.2rem",
           "border-bottom": "1px solid white",
+          background: "gold",
+          "font-size": "1.2rem",
         }}
-        ref={sortable.handleRef}
+        ref={(r) => {
+          sortable.handleRef(r); topEdge.ref(r)
+        }}
       >
         {props.data.name} ID: {props.id}
       </div>
-      <For each={props.data.children}>
-        {(child, index) => (
-          <Switch>
-            <Match when={child.kind === "block"}>
-              <Block {...child} index={index()} />
-            </Match>
-            <Match when={child.kind === "instruction"}>
-              <DummyInstruction
-                {...child}
-                index={index()}
-                parentId={props.id}
-              />
-            </Match>
-          </Switch>
-        )}
-      </For>
+      <div
+        style={{
+          display: "flex",
+          "flex-direction": "column",
+          "min-height": "3rem",
+          padding: "0.4rem",
+          margin: "0.4rem 0.2rem",
+          background: "red",
+        }}
+      >
+        <For each={props.data.children}>
+          {(child, index) => (
+            <Switch>
+              <Match when={child.kind === "block"}>
+                <Block {...child} index={index()} />
+              </Match>
+              <Match when={child.kind === "instruction"}>
+                <DummyInstruction
+                  {...child}
+                  index={index()}
+                  parentId={props.id}
+                />
+              </Match>
+            </Switch>
+          )}
+        </For>
+      </div>
+
+      <div
+        style={{
+          display: "inline-block",
+          "min-height": "2rem",
+          background: "gold",
+        }}
+        ref={bottomEdge.ref}
+      >
+      </div>
     </div>
   );
 }
@@ -88,6 +113,7 @@ function DummyInstruction(props) {
         margin: "0.2rem",
         background: "blue",
         width: "fit-content",
+        "font-size": "1rem",
       }}
       ref={sortable.ref}
     >
@@ -96,7 +122,7 @@ function DummyInstruction(props) {
   );
 }
 
-function findNodeContext(nodes, searchId) {
+function lookupId(nodes, searchId) {
   if (!nodes) return null;
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
@@ -106,7 +132,7 @@ function findNodeContext(nodes, searchId) {
     }
 
     if (node.kind === "block") {
-      const found = findNodeContext(node.data.children, searchId);
+      const found = lookupId(node.data.children, searchId);
       if (found) return found;
     }
   }
@@ -121,17 +147,15 @@ function isDescendant(node, searchId) {
   return false;
 }
 
-function RootDropZone() {
-  const droppable = useDroppable({
-    id: "root-drop-zone",
-    accept: ["block"],
-  });
-  return (
-    <div
-      ref={droppable.ref}
-      style={{ flex: "1", "min-height": "3rem", background: "green" }}
-    />
-  );
+function parseId(id) {
+  if (typeof id === "string") {
+    if (id.startsWith("top:"))
+      return { intent: "before", id: Number(id.slice(4)) };
+    if (id.startsWith("bottom:"))
+      return { intent: "after", id: Number(id.slice(7)) };
+  }
+
+  return { intent: "onto", id: id };
 }
 
 export default function BlockEditor(props) {
@@ -170,9 +194,9 @@ export default function BlockEditor(props) {
         MakeBlock("Setup", [
           MakeBlock("Init", [MakeInstruction()]),
           MakeInstruction(),
-            MakeInstruction(),
-            MakeInstruction(),
-            MakeInstruction(),
+          MakeInstruction(),
+          MakeInstruction(),
+          MakeInstruction(),
         ]),
         MakeBlock("Tick", [MakeInstruction()]),
       ]
@@ -187,7 +211,6 @@ export default function BlockEditor(props) {
   return (
     <DragDropProvider
       onDragStart={(e) => {
-        console.log("Drag started with", e);
         editorStoreSnapshot = structuredClone(unwrap(editorStore));
       }}
       onDragEnd={(event) => {
@@ -204,49 +227,33 @@ export default function BlockEditor(props) {
 
         setEditorStore(
           produce((draft) => {
-            const sourceCtx = findNodeContext(draft.blocks, source.id);
-            if (!sourceCtx) return;
+            const src = lookupId(draft.blocks, source.id);
+            console.assert(src != null)
 
-            if (target.id === "root-drop-zone") {
-              if (isDescendant(sourceCtx.node, target.id)) return;
-              const [movedItem] = sourceCtx.container.splice(
-                sourceCtx.index,
-                1,
-              );
-              draft.blocks.push(movedItem);
-              return;
-            }
+            const { intent, id: resolvedId } = parseId(target.id);
+            const tgt = lookupId(draft.blocks, resolvedId);
+            if (tgt == null) return;
 
-            const targetCtx = findNodeContext(draft.blocks, target.id);
-            if (!targetCtx) return;
-            if (isDescendant(sourceCtx.node, target.id)) return;
+            if (isDescendant(src.node, resolvedId)) return;
 
-            const rect = target.element.getBoundingClientRect();
-            const pointerY = e.operation.position.current.y;
-            const EDGE_PX = 12;
+            // Remove the node from it's original position
+            const [movedItem] = src.container.splice(src.index, 1);
 
-            const inTopEdge = pointerY < rect.top + EDGE_PX;
-            const inBottomEdge = pointerY > rect.bottom - EDGE_PX;
-            const nestInside =
-              targetCtx.node.kind === "block" && !inTopEdge && !inBottomEdge;
 
-            // Adjust for index shift when operating in the same container
-            const sameContainer = sourceCtx.container === targetCtx.container;
-            const adjustedTargetIndex =
-              sameContainer && sourceCtx.index < targetCtx.index
-                ? targetCtx.index - 1
-                : targetCtx.index;
-
-            const [movedItem] = sourceCtx.container.splice(sourceCtx.index, 1);
-
-            const droppingIntoBlock =
-              targetCtx.node.kind === "block" &&
-              sourceCtx.node.kind === "instruction";
-
-            if (droppingIntoBlock) {
-              targetCtx.node.data.children.push(movedItem);
+            if (tgt.node.kind === "block") {
+              switch (intent) {
+                case "before":
+                  tgt.container.splice(tgt.index, 0, movedItem);
+                  break;
+                case "after":
+                  tgt.container.splice(tgt.index + 1, 0, movedItem);
+                  break;
+                case "onto":
+                  tgt.node.data.children.push(movedItem);
+                  break;
+              }
             } else {
-              targetCtx.container.splice(adjustedTargetIndex, 0, movedItem);
+              tgt.container.splice(tgt.index, 0, movedItem);
             }
           }),
         );
@@ -258,6 +265,8 @@ export default function BlockEditor(props) {
           height: "100%",
           background: "#121218",
           display: "flex",
+          "overflow-x": "hidden",
+          "overflow-y": "scroll",
           "flex-direction": "column",
           ...props.style,
         }}
@@ -265,7 +274,6 @@ export default function BlockEditor(props) {
         <For each={editorStore.blocks} fallback={<div>No Blocks :(</div>}>
           {(block, index) => <Block {...block} index={index()} />}
         </For>
-        <RootDropZone />
       </div>
     </DragDropProvider>
   );
