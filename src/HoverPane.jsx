@@ -39,38 +39,16 @@ export default function (props) {
     document.removeEventListener("mouseup", handleMouseUp);
   });
 
-  function container_styles() {
-    return {
-      position: "fixed",
-      transform: `translate3d(${position().x}px, ${position().y}px, 0)`,
-      background: "var(--color_background--surface)",
-      overflow: "hidden",
-      "min-width": "10rem",
-      "border-radius": "0.1rem",
-      "box-shadow": "0 4px 6px rgba(0,0,0,0.5)",
-      "will-change": "transform", // Browser hint that this element is dynamic
-    }
-  };
-  const handle_styles = {
-    cursor: "move",
-    display: "block",
-    background: "var(--color_background--chip)",
-    "min-height": "1.2rem",
-    width: "100%",
-  };
-  const content_styles = {
-    padding: "0 0.9rem",
-    width: "100%",
-  };
-
-
   return (
-    <div style={container_styles()} >
-      <div style={handle_styles} onMouseDown={handleMouseDown}>
+    <div
+      class="fixed bg-background overflow-hidden min-w-40 rounded-xs shadow-md will-change-transform"
+      style={{ transform: `translate3d(${position().x}px, ${position().y}px, 0)` }}
+    >
+      <div class="cursor-move block bg-chip min-h-5 w-full" onMouseDown={handleMouseDown}>
       </div>
-      <div style={content_styles}>
+      <div class="pb-4 w-full" >
         <Show when={props.title}>
-          <h3 style={{ "user-select": "none" }}>{props.title}</h3>
+          <h3 class="select-none">{props.title}</h3>
         </Show>
         {props.children}
       </div>

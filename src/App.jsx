@@ -7,27 +7,13 @@ export default function App() {
 
   return (
     <>
-      <div
-        style={{
-          width: "100vw",
-          height: "100vh",
-          background: "#222",
-          display: "flex",
-        }}
-      >
-        <BlockEditor style={{ flex: 2 }} />
+      <div class="bg-background flex flex-row w-screen h-screen" >
+        <BlockEditor />
         {/* The Game Canvas */}
         <canvas
           ref={canvasRef}
           id="gl-canvas"
-          style={{
-            flex: 3,
-            display: "block",
-            width: "100%",
-            height: "100%",
-            inset: 0,
-            "z-index": 1,
-          }}
+          class="flex-3 w-full h-full block inset-0 z-10"
           width={0}
           height={0}
         />

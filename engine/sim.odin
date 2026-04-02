@@ -84,6 +84,7 @@ Sim_Element :: struct {
 	growth_rate:             f32,
 	depth:                   u8,
 	debug_state:             Sim_Debug_GrowthState, // TODO: Elements will be state machines with finite memory
+	entrypoint: VM_Label,
 	// Physics handles
 	body:                    b2.BodyId,
 	shape:                   b2.ShapeId,

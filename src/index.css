@@ -4,8 +4,80 @@
   https://github.com/MattMcAdams/CSS-Boilerplate
 ================================================================== */
 
-@import url("styles/variables.css");
-@import url("styles/reset.css");
-@import url("styles/core.css");
-/*@import url("styles/forms.css");*/
-/*@import url("styles/layout.css");*/
+@import "tailwindcss";
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+@layer base {
+    :root {
+        color-scheme: light dark;
+
+        [data-theme="light"] {
+            color-scheme: light;
+        }
+
+        [data-theme="dark"] {
+            color-scheme: dark;
+        }
+
+        /* Backgrounds - surfaces stack from page → card → modal */
+        --color-base: light-dark(var(--color-slate-50), var(--color-slate-950));
+        --color-surface: light-dark(var(--color-white), var(--color-slate-900));
+        --color-surface-raised: light-dark(var(--color-white), var(--color-slate-200));
+        --color-chip: light-dark(var(--color-slate-600), var(--color-slate-600));
+        /* Borders */
+        --color-border: light-dark(var(--color-slate-400), var(--color-slate-700));
+        --color-border-subtle: light-dark(var(--color-slate-300), var(--color-slate-800));
+        /* Text */
+        --color-text: light-dark(var(--color-slate-900), var(--color-slate-50));
+        --color-text-subtle: light-dark(var(--color-slate-500), var(--color-slate-400));
+        --color-on-accent: light-dark(var(--color-white), var(--color-white));
+        /* Accent (interactive) */
+        --color-accent: light-dark(var(--color-blue-600), var(--color-blue-400));
+        --color-accent-hover: light-dark(var(--color-blue-700), var(--color-blue-300));
+        --color-accent-subtle: light-dark(var(--color-blue-100), var(--color-slate-800));
+        --color-accent-fg: light-dark(var(--color-blue-700), var(--color-blue-500));
+        /* Status */
+        --color-danger: light-dark(var(--color-red-600), var(--color-red-400));
+        --color-danger-subtle: light-dark(var(--color-red-100), var(--color-red-300));
+        --color-danger-fg: light-dark(var(--color-red-700), var(--color-red-500));
+
+        --color-success: light-dark(var(--color-green-600), var(--color-green-400));
+        --color-success-subtle: light-dark(var(--color-green-100), var(--color-green-300));
+        --color-success-fg: light-dark(var(--color-green-700), var(--color-green-500));
+
+        --color-warning: light-dark(var(--color-amber-600), var(--color-amber-400));
+        --color-warning-subtle: light-dark(var(--color-amber-100), var(--color-amber-300));
+        --color-warning-fg: light-dark(var(--color-amber-700), var(--color-amber-500));
+    }
+}
+
+@theme inline {
+    --color-background: var(--color-base);
+    --color-surface: var(--color-surface);
+    --color-surface-raised: var(--color-surface-raised);
+    --color-chip: var(--color-chip);
+
+    --color-border: var(--color-border);
+    --color-border-subtle: var(--color-border-subtle);
+
+    --color-text: var(--color-text);
+    --color-text-muted: var(--color-text-muted);
+    --color-on-accent: var(--color-on-accent);
+    /* Accent shifts lighter so it reads on dark backgrounds */
+    --color-accent: var(--color-accent);
+    --color-accent-hover: var(--color-accent-hover);
+    --color-accent-subtle: var(--color-accent-subtle);
+    --color-accent-fg: var(--color-accent-fg);
+
+    --color-danger: var(--color-danger);
+    --color-danger-subtle: var(--color-red-300);
+    --color-danger-fg: var(--color-danger-fg);
+
+    --color-success: var(--color-success);
+    --color-success-subtle: var(--color-green-300);
+    --color-success-fg: var(--color-success-fg);
+
+    --color-warning: var(--color-warning);
+    --color-warning-subtle: var(--color-amber-300);
+    --color-warning-fg: var(--color-warning-fg);
+}

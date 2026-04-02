@@ -40,7 +40,7 @@ export default class OdinBridge {
     this.sim_meta = JSON.parse(s);
     this.sim_ptr = this.exports.get_sim_state_ptr(this.odin_ctx);
 
-    console.log(this.sim_meta);
+    // console.log(this.sim_meta);
 
     if (canvasElement !== undefined) {
       const canvas = getElement(canvasElement);

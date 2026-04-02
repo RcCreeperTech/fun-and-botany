@@ -17,6 +17,9 @@
   },
   "dependencies": {
     "@dnd-kit/solid": "^0.3.2",
-    "solid": "^0.2.1"
+    "@tailwindcss/vite": "^4.2.2",
+    "npm": "^11.12.1",
+    "solid": "^0.2.1",
+    "tailwindcss": "^4.2.2"
   }
 }

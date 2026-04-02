@@ -26,41 +26,16 @@ function Block(props) {
   const bottomEdge = useDroppable({ id: `bottom:${props.id}` });
 
   return (
-    <div
-      style={{
-        display: "flex",
-        "flex-direction": "column",
-        margin: "1rem 0.4rem",
-        background: "red",
-        width: "fit-content",
-        border: "1px solid white"
-      }}
-      ref={sortable.ref}
-    >
+    <div class="flex flex-col w-fit my-1 rounded-sm" ref={sortable.ref} >
       <div
-        style={{
-          display: "inline-block",
-          padding: "0 0.5rem",
-          "border-bottom": "1px solid white",
-          background: "gold",
-          "font-size": "1.2rem",
-        }}
+        class="bg-chip text-on-accent px-2 py-1 text-lg rounded-t-sm"
         ref={(r) => {
           sortable.handleRef(r); topEdge.ref(r)
         }}
       >
         {props.data.name} ID: {props.id}
       </div>
-      <div
-        style={{
-          display: "flex",
-          "flex-direction": "column",
-          "min-height": "3rem",
-          padding: "0.4rem",
-          margin: "0.4rem 0.2rem",
-          background: "red",
-        }}
-      >
+      <div class="flex flex-col bg-surface p-2 min-h-12 border border-border border-solid" >
         <For each={props.data.children}>
           {(child, index) => (
             <Switch>
@@ -79,16 +54,8 @@ function Block(props) {
         </For>
       </div>
 
-      <div
-        style={{
-          display: "inline-block",
-          "min-height": "2rem",
-          background: "gold",
-        }}
-        ref={bottomEdge.ref}
-      >
-      </div>
-    </div>
+      <div class="bg-chip inline-block min-h-4 rounded-b-sm" ref={bottomEdge.ref} />
+    </div >
   );
 }
 
@@ -108,13 +75,7 @@ function DummyInstruction(props) {
 
   return (
     <div
-      style={{
-        padding: "0.4rem 1.4rem",
-        margin: "0.2rem",
-        background: "blue",
-        width: "fit-content",
-        "font-size": "1rem",
-      }}
+      class="bg-accent text-on-accent p-2 m-1 rounded-sm w-fit text-base"
       ref={sortable.ref}
     >
       DummyInstruction {props.id}
@@ -259,18 +220,7 @@ export default function BlockEditor(props) {
         );
       }}
     >
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          background: "#121218",
-          display: "flex",
-          "overflow-x": "hidden",
-          "overflow-y": "scroll",
-          "flex-direction": "column",
-          ...props.style,
-        }}
-      >
+      <div class="flex-2 flex flex-col w-full h-full bg-background p-2 overflow-x-hidden overflow-y-scroll" >
         <For each={editorStore.blocks} fallback={<div>No Blocks :(</div>}>
           {(block, index) => <Block {...block} index={index()} />}
         </For>
