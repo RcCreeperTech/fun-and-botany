@@ -22,7 +22,7 @@
         /* Backgrounds - surfaces stack from page → card → modal */
         --color-base: light-dark(var(--color-slate-50), var(--color-slate-950));
         --color-surface: light-dark(var(--color-white), var(--color-slate-900));
-        --color-surface-raised: light-dark(var(--color-white), var(--color-slate-200));
+        --color-surface-raised: light-dark(var(--color-white), var(--color-slate-700));
         --color-chip: light-dark(var(--color-slate-600), var(--color-slate-600));
         /* Borders */
         --color-border: light-dark(var(--color-slate-400), var(--color-slate-700));
@@ -61,7 +61,7 @@
     --color-border-subtle: var(--color-border-subtle);
 
     --color-text: var(--color-text);
-    --color-text-muted: var(--color-text-muted);
+    --color-text-subtle: var(--color-text-subtle);
     --color-on-accent: var(--color-on-accent);
     /* Accent shifts lighter so it reads on dark backgrounds */
     --color-accent: var(--color-accent);
@@ -81,3 +81,5 @@
     --color-warning-subtle: var(--color-amber-300);
     --color-warning-fg: var(--color-warning-fg);
 }
+
+@source inline("bg-{orange,amber,lime,cyan,emerald,teal,sky,rose,indigo,violet,purple,green,red,pink}-500");

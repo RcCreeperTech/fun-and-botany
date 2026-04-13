@@ -1,8 +1,10 @@
 import { createStore, unwrap, reconcile, produce } from "solid-js/store";
-import { createSignal, For, Switch, Match } from "solid-js";
+import { createSignal, For, Switch, Match, Show } from "solid-js";
 import { useDroppable, DragDropProvider } from "@dnd-kit/solid";
 import { CollisionPriority } from "@dnd-kit/abstract";
 import { useSortable } from "@dnd-kit/solid/sortable";
+
+const DEBUG_MODE = false;
 
 let _uid = 0;
 function nextUID() {
@@ -33,7 +35,7 @@ function Block(props) {
           sortable.handleRef(r); topEdge.ref(r)
         }}
       >
-        {props.data.name} ID: {props.id}
+        {props.data.name} <span class="text-xs">ID: {props.id}</span>
       </div>
       <div class="flex flex-col bg-surface p-2 min-h-12 border border-border border-solid" >
         <For each={props.data.children}>
@@ -43,7 +45,7 @@ function Block(props) {
                 <Block {...child} index={index()} />
               </Match>
               <Match when={child.kind === "instruction"}>
-                <DummyInstruction
+                <Instruction
                   {...child}
                   index={index()}
                   parentId={props.id}
@@ -59,7 +61,16 @@ function Block(props) {
   );
 }
 
-function DummyInstruction(props) {
+function InstructionValueSlot(props) {
+  const { ref } = useDroppable({ id: `slot:${props.id}`, accept: "label" });
+
+  return (
+    <div class="min-w-12 min-h-4 ml-4 px-3 py-0.5 bg-surface border border-solid border-surface-raised rounded-sm inline">
+    </div>
+  );
+}
+
+function Instruction(props) {
   const sortable = useSortable({
     type: "instruction",
     get id() {
@@ -73,12 +84,43 @@ function DummyInstruction(props) {
     },
   });
 
+  const color = () => {
+    switch (props.data.kind) {
+      case "dummy": return "orange";
+      case "const": return "amber";
+      case "push": return "lime";
+      case "pop": return "cyan";
+      case "mul": return "emerald";
+      case "div": return "teal";
+      case "add": return "sky";
+      case "sub": return "rose";
+      case "rand": return "indigo";
+      case "jump": return "violet";
+      case "spawn": return "purple";
+      case "get": return "green";
+      case "set": return "red";
+      default: return "pink";
+    }
+  }
+
   return (
     <div
-      class="bg-accent text-on-accent p-2 m-1 rounded-sm w-fit text-base"
+      class={
+        `text-on-accent
+         text-center text-sm capitalize
+         py-1.5 px-2 m-1
+         min-w-16 w-fit
+         rounded-sm
+         bg-${color()}-500`}
       ref={sortable.ref}
     >
-      DummyInstruction {props.id}
+      {props.data.kind}
+      <Show when={DEBUG_MODE}>
+        <span class="text-xs m-1">ID: {props.id}</span>
+      </Show>
+      <Show when={props.data.kind === "push"}>
+        <InstructionValueSlot id={props.id} />
+      </Show>
     </div>
   );
 }
@@ -128,16 +170,45 @@ export default function BlockEditor(props) {
   //             name: string,
   //             children: List<TreeNode>,
   //         }
-  //         instruction: void,
+  //         instruction: {
+  //             kind: "dummy"  |
+  //                    "const" |
+  //                    "push"  |
+  //                    "pop"   |
+  //                    "mul"   |
+  //                    "div"   |
+  //                    "add"   |
+  //                    "sub"   |
+  //                    "rand"  |
+  //                    "jump"  |
+  //                    "spawn" |
+  //                    "get"   |
+  //                    "set",
+  //             payload: {
+  //                 dummy: void,
+  //                 pop: void,
+  //                 mul: void,
+  //                 div: void,
+  //                 add: void,
+  //                 sub: void,
+  //                 rand: void,
+  //                 push: <???>,
+  //             },
+  //         },
   //     }
   // }
 
-  function MakeInstruction() {
+  function MakeSimple(name) {
     return {
       id: nextUID(),
       kind: "instruction",
+      data: {
+        kind: name,
+      }
     };
   }
+
+  function MakeDummy() { return MakeSimple("dummy"); }
 
   function MakeBlock(name, children) {
     const result = {
@@ -153,13 +224,16 @@ export default function BlockEditor(props) {
     const init = {
       blocks: [
         MakeBlock("Setup", [
-          MakeBlock("Init", [MakeInstruction()]),
-          MakeInstruction(),
-          MakeInstruction(),
-          MakeInstruction(),
-          MakeInstruction(),
+          MakeBlock("Init", [MakeDummy()]),
+          MakeSimple("push"),
+          MakeSimple("pop"),
+          MakeSimple("mul"),
+          MakeSimple("div"),
+          MakeSimple("add"),
+          MakeSimple("sub"),
+          MakeSimple("rand"),
         ]),
-        MakeBlock("Tick", [MakeInstruction()]),
+        MakeBlock("Tick", [MakeDummy()]),
       ]
     };
     return init;
@@ -194,6 +268,9 @@ export default function BlockEditor(props) {
             const { intent, id: resolvedId } = parseId(target.id);
             const tgt = lookupId(draft.blocks, resolvedId);
             if (tgt == null) return;
+
+            // Only blocks are allowed at root level
+            if (tgt.container === draft.blocks && src.node.kind == "instruction") return;
 
             if (isDescendant(src.node, resolvedId)) return;
 

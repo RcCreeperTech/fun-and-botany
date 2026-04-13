@@ -488,8 +488,6 @@ pop_transform :: proc(self: ^Renderer_State) {
 	}
 }
 
-// FIXME: How do I remove dpr from this equation...
-// Could I set zoom = dpr?
 Camera :: struct {
 	target:      Vec2,
 	orientation: f32,
