@@ -1,5 +1,6 @@
 const END_GROWTH_RATE = 0.05
-const TURN_ANGLE = 0.69813 ; TAU / 9
+const RIGHT_TURN_ANGLE = 0.69813 ; TAU / 9
+const LEFT_TURN_ANGLE = -0.69813 ; -TAU / 9 TODO: Unary minus for constant expressions
 
 Colors:
     const BROWN = #D27D2DFF ; RGBA hex code
@@ -39,7 +40,7 @@ Node:
     push 0.88
     jump/gt :turn_right ; This seems almost function like the only thing missing is parameter passing
     turn_right:
-        push TURN_ANGLE
+        push RIGHT_TURN_ANGLE
         push :Bud
         spawn
     end
@@ -48,13 +49,13 @@ Node:
     push 0.77
     jump/gt :turn_left
     turn_left:
-        push -TURN_ANGLE ; Should this be ok?
+        push LEFT_TURN_ANGLE ; Should this be ok?
         push :Bud
         spawn
     end
 
     push :Stem
-    set $state
+    set $State
 end
 
 Stem:

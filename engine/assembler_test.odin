@@ -16,7 +16,73 @@ asm_test_plant_test_code :: proc(t: ^testing.T) {
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
-	dump_program(prog)
+	// Expected Program Output
+	expected := VM_Program {
+	    blocks = {
+	        {
+	        },
+	        {
+	            { op = .GetParam,  imm = { VM_Param.Growth_Rate, nil, } },
+	            { op = .Push,  imm = { f32(0.05), nil, } },
+	            { op = .Push,  imm = { f32(5), nil, } },
+	            { op = .Multiply, },
+	            { precondition = .Gt,  op = .EarlyReturn, },
+	            { op = .Rand, },
+	            { op = .Push,  imm = { f32(0.33), nil, } },
+	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(3), VM_Label(2), } },
+	        },
+	        {
+	            { op = .Rand, },
+	            { op = .Push,  imm = { f32(0.94999999), nil, } },
+	            { precondition = .Lt,  op = .Push,  imm = { VM_Label(4), VM_Label(7), } },
+	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
+	        },
+	        {
+	            { op = .Push,  imm = { i32(0), nil, } },
+	            { op = .Push,  imm = { VM_Label(1), nil, } },
+	            { op = .Spawn, },
+	            { op = .Push,  imm = { VM_Label(8), nil, } },
+	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
+	        },
+	        {
+	            { op = .Rand, },
+	            { op = .Push,  imm = { f32(0.88), nil, } },
+	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(6), nil, } },
+	            { op = .Rand, },
+	            { op = .Push,  imm = { f32(0.76999998), nil, } },
+	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(5), nil, } },
+	            { op = .Push,  imm = { VM_Label(8), nil, } },
+	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
+	        },
+	        {
+	            { op = .Push,  imm = { f32(-0.69813), nil, } },
+	            { op = .Push,  imm = { VM_Label(1), nil, } },
+	            { op = .Spawn, },
+	        },
+	        {
+	            { op = .Push,  imm = { f32(0.69813), nil, } },
+	            { op = .Push,  imm = { VM_Label(1), nil, } },
+	            { op = .Spawn, },
+	        },
+	        {
+	            { op = .Push,  imm = { Color { 255, 255, 0, 255, }, nil, } },
+	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
+	        },
+	        {
+	            { op = .Push,  imm = { Color { 255, 45, 125, 210, }, nil, } },
+	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
+	            { op = .GetParam,  imm = { VM_Param.Length, nil, } },
+	            { op = .Push,  imm = { f32(0.001), nil, } },
+	            { op = .Add, },
+	            { op = .SetParam,  imm = { VM_Param.Length, nil, } },
+	            { op = .GetParam,  imm = { VM_Param.Thickness, nil, } },
+	            { op = .Push,  imm = { f32(0.0049999999), nil, } },
+	            { op = .Add, },
+	            { op = .SetParam,  imm = { VM_Param.Thickness, nil, } },
+	        },
+	    }
+	}
+	expect_program(t, prog, expected)
 }
 
 @(test)
