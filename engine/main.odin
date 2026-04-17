@@ -30,7 +30,7 @@ ApplicationState :: struct {
 	physics_world_debug_draw: b2.DebugDraw,
 	ctx:                      runtime.Context,
 	ground:                   b2.BodyId,
-	vm: 					VM,
+	vm: 					  VM,
 	test_program: VM_Program,
 }
 

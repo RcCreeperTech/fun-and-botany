@@ -8,6 +8,18 @@ import "core:strings"
 import "core:testing"
 
 @(test)
+asm_test_plant_test_code :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/plant_test_code.asm", string)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
+	testing.expect_value(t, err, nil)
+
+	dump_program(prog)
+}
+
+@(test)
 asm_test_constants :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/constants.asm", string)
 	assembler: Assembler
@@ -69,8 +81,18 @@ asm_test_get_set :: proc(t: ^testing.T) {
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
-	dump_program(prog)
-	// expect_program(t, prog, expected)
+	// Expected Program Output
+	expected := VM_Program {
+	    blocks = {
+	        {
+	            { op = .GetParam,  imm = { VM_Param.State, nil, } },
+	            { op = .Pop, },
+	            { op = .Push,  imm = { Color { 255, 24, 24, 24, }, nil, } },
+	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
+	        },
+	    }
+	}
+	expect_program(t, prog, expected)
 }
 
 @(test)
@@ -81,9 +103,6 @@ asm_test_get_set_failing :: proc(t: ^testing.T) {
 	defer asm_cleanup(&assembler)
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, ProgramError.Unknown_Parameter)
-
-	dump_program(prog)
-	// expect_program(t, prog, expected)
 }
 
 @(test)

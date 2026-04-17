@@ -30,6 +30,7 @@ Token_Keyword :: enum {
 	End,
 	Get,
 	Set,
+	Ret,
 }
 Token_Identifier :: struct {}
 Token_Parameter :: struct {}
@@ -415,45 +416,40 @@ asm_assemble :: proc(
 					_ = expect(self, Token_Slash) or_return
 					inst.precondition = parse_precondition(self) or_return
 
-					imm0, maybe_constant_name := parse_literal(self) or_return
-					if constant_name, ok := maybe_constant_name.(string); ok {
-						append(&self.relocations, Relocation{
-							block_path = slice.clone(self.current_scope[:], self.allocator),
-							offset = offset,
-							pred = false,
-							constant_name = constant_name,
-						})
-					}
-					inst.imm[0] = imm0
+					parse_inst_literal(self, &inst, offset, false) or_return
 
 					tok := scanner_peek(self) or_return
 					if check_token(tok, Token_Comma) {
 						_ = expect(self, Token_Comma) or_return
-						imm1, maybe_constant_name := parse_literal(self) or_return
-						if constant_name, ok := maybe_constant_name.(string); ok {
-							append(&self.relocations, Relocation{
-								block_path = slice.clone(self.current_scope[:], self.allocator),
-								offset = offset,
-								pred = true,
-								constant_name = constant_name,
-							})
-						}
-						inst.imm[1] = imm1
+						parse_inst_literal(self, &inst, offset, true) or_return
 					}
 				} else {
-					imm, maybe_constant_name := parse_literal(self) or_return
-					if constant_name, ok := maybe_constant_name.(string); ok {
-						append(&self.relocations, Relocation{
-							block_path = slice.clone(self.current_scope[:], self.allocator),
-							offset = offset,
-							pred = false,
-							constant_name = constant_name,
-						})
-					}
-					inst.imm[0] = imm
+					parse_inst_literal(self, &inst, offset, false) or_return
 				}
 
 				_ = expect(self, Token_End_Of_Statement) or_return
+
+				parse_inst_literal :: proc(self: ^Assembler, inst: ^VM_Instruction, offset: int, pred: bool) -> (err: AssemblerError) {
+					switch lit in parse_literal(self) or_return {
+					case Parsed_ConstantRef:
+						append(&self.relocations, Relocation{
+							block_path = slice.clone(self.current_scope[:], self.allocator),
+							offset = offset,
+							pred = pred,
+							constant_name = string(lit),
+						})
+					case Parsed_LabelRef:
+						append(&self.block_refs, BlockRef{
+							block_path = slice.clone(self.current_scope[:], self.allocator),
+							offset = offset,
+							pred = pred,
+							ref = string(lit[1:]),
+						})
+					case VM_Value:
+						inst.imm[1 if pred else 0] = lit
+					}
+					return
+				}
 			case .Jump:
 				inst.op = .Jump
 				tok := scanner_peek(self) or_return
@@ -510,8 +506,12 @@ asm_assemble :: proc(
 			case .Rand:
 				inst.op = .Rand
 				parse_basic_instruction(self, &inst) or_return
+			case .Ret:
+				inst.op = .EarlyReturn
+				parse_basic_instruction(self, &inst) or_return
 			case .Spawn:
-				unimplemented()
+				inst.op = .Spawn
+				parse_basic_instruction(self, &inst) or_return
 			case .Const, .End:
 				unreachable()
 			}
@@ -549,24 +549,34 @@ asm_assemble :: proc(
 				return {}, .Undefined_Predicate
 			}
 		}
+
+		Parsed_ConstantRef :: distinct string
+		Parsed_LabelRef :: distinct string
+		Parsed_Literal :: union {
+			VM_Value,
+			Parsed_ConstantRef,
+			Parsed_LabelRef,
+		}
 		parse_literal :: proc(self: ^Assembler) -> (
-			result: VM_Value,
-		 	constant_name: Maybe(string),
+			result: Parsed_Literal,
 			err: AssemblerError
 		) {
 			tok := scanner_next(self) or_return
 
 			#partial switch k in tok.kind {
 			case Token_IntLit:
-				result = k
+				result = VM_Value(k)
 			case Token_FloatLit:
-				result = k
+				result = VM_Value(k)
 			case Token_BoolLit:
-				result = k
+				result = VM_Value(k)
 			case Token_HexLit:
-				result = rgba_u32_to_color(k)
+				result = VM_Value(rgba_u32_to_color(k))
 			case Token_Identifier:
-				constant_name = parse_constant_literal(self, tok.raw) or_return
+				lit := parse_constant_literal(self, tok.raw) or_return
+				result = Parsed_ConstantRef(lit)
+			case Token_Label:
+				result = Parsed_LabelRef(tok.raw)
 			case:
 				err = .Unexpected_Token // Is there a better error I can put here?
 			}
@@ -850,6 +860,8 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
 				out.kind = Token_Keyword.Get
 			case "set":
 				out.kind = Token_Keyword.Set
+			case "ret":
+				out.kind = Token_Keyword.Ret
 			}
 		case Token_IntLit:
 			v, ok := strconv.parse_i64(out.raw, 10)

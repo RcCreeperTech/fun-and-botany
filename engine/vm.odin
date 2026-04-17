@@ -68,8 +68,10 @@ VM_Op :: enum u8 {
 	Negate,
 	Jump,
 	Call,
+	EarlyReturn,
 	GetParam,
 	SetParam,
+	Spawn,
 }
 
 VM_Block :: []VM_Instruction
@@ -195,7 +197,8 @@ vm_run :: proc(vm: ^VM, program: VM_Program, element: ^Sim_Element = nil) -> (er
 	}
 	for {
 		if inst, ok := vm_fetch(vm); ok {
-			vm_exec(vm, inst, program) or_return
+			early_return := vm_exec(vm, inst, program) or_return
+			if early_return do return .None
 		} else {
 			vm.active_block = sm.pop_back_safe(&vm.call_stack) or_break
 		}
@@ -217,6 +220,7 @@ vm_exec :: proc(
 	program: VM_Program,
 	element: ^Sim_Element = nil,
 ) -> (
+	early_return: bool,
 	err: VM_Error,
 ) {
 
@@ -241,16 +245,20 @@ vm_exec :: proc(
 			case .Comparison_Faliure:
 				log.error(a, "is not totally ordered.")
 			}
-			return err
+			return false, err
 		}
 
 	}
 
 	switch inst.op {
+	case .Spawn:
+		if element != nil && precond_success {
+			unimplemented("Intergration point with the engine")
+		}
 	case .GetParam:
 		if element != nil && precond_success {
 			param, ok := inst.imm[0].(VM_Param)
-			if !ok do return .Argument_Mismatch
+			if !ok do return false, .Argument_Mismatch
 
 			val := vm_get_param(vm, element, param) or_return
 			vm_push_value(vm, val) or_return
@@ -261,7 +269,7 @@ vm_exec :: proc(
 
 			value := vm_take_arg(vm)
 			param, ok := inst.imm[0].(VM_Param)
-			if !ok do return .Argument_Mismatch
+			if !ok do return false, .Argument_Mismatch
 
 			vm_set_param(vm, element, param, value) or_return
 		}
@@ -275,7 +283,7 @@ vm_exec :: proc(
 	case .Pop:
 		if precond_success {
 			if _, ok := sm.pop_back_safe(&vm.stack); !ok {
-				return .Stack_Underflow
+				return false, .Stack_Underflow
 			}
 		}
 	case .Add:
@@ -295,9 +303,9 @@ vm_exec :: proc(
 				idx  = label,
 				head = program.blocks[label],
 			}
-			return .None // To avoid incrementing PC
+			return false, .None // To avoid incrementing PC
 		} else {
-			return .Argument_Mismatch
+			return false, .Argument_Mismatch
 		}
 	case .Call:
 		imm := inst.imm[0] if precond_success else inst.imm[1]
@@ -309,14 +317,16 @@ vm_exec :: proc(
 				idx  = label,
 				head = program.blocks[label],
 			}
-			return .None // To avoid incrementing PC
+			return false, .None // To avoid incrementing PC
 		} else {
-			return .Argument_Mismatch
+			return false, .Argument_Mismatch
 		}
+	case .EarlyReturn:
+		return true, .None
 	}
 
 	vm.active_block.head = vm.active_block.head[1:]
-	return .None
+	return false, .None
 
 }
 
