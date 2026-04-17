@@ -82,24 +82,18 @@ ParserError :: enum {
 	Undefined_Predicate,
 	Unexpected_Token,
 	Unexpected_Top_Level_Keyword,
-	Unable_To_Resolve_Constant_To_Value,
-	Unable_To_Resolve_Block_To_Value,
+	Unable_To_Resolve_Ref_To_Value,
 	Duplicate_Identifier,
 }
 
 Constant :: VM_Value
 BlockBuilder :: [dynamic]VM_Instruction
-// Could these be conbined?
-BlockRef :: struct {
-	block_path: []string,
-	offset: int,
-	ref: string,
-	pred: bool,
-}
+RelocationKind :: enum { Label, Constant }
 Relocation :: struct {
-	block_path: []string,
+	kind: RelocationKind,
+	path: []string,
+	name: string,
 	offset: int,
-	constant_name: string,
 	pred: bool,
 }
 Assembler :: struct {
@@ -111,7 +105,6 @@ Assembler :: struct {
 	current_scope: [dynamic]string,
 	constants: map[string]Constant,
 	relocations: [dynamic]Relocation,
-	block_refs: [dynamic]BlockRef,
 	block_name_table: map[string]VM_Label
 }
 asm_init :: proc(self: ^Assembler, allocator := context.allocator) {
@@ -120,7 +113,6 @@ asm_init :: proc(self: ^Assembler, allocator := context.allocator) {
 	self.blocks = make(map[string]VM_Block, self.allocator)
 	self.constants = make(map[string]Constant,  self.allocator)
 	self.relocations = make([dynamic]Relocation,  self.allocator)
-	self.block_refs = make([dynamic]BlockRef,  self.allocator)
 	self.block_name_table = make(map[string]VM_Label, self.allocator)
 	self.current_scope = make([dynamic]string, self.allocator)
 	self.path_builder = strings.builder_make(self.allocator)
@@ -144,19 +136,6 @@ asm_register_constant :: proc(self: ^Assembler, prefix: []string, label: string,
 	self.constants[qualified_name] = value
 	return nil
 }
-asm_resolve_constant :: proc(self: ^Assembler, query_path: []string, constant_name: string) -> (constant: Constant, found: bool = false) {
-	prefix := asm_get_path_tmp(self, query_path, "", ".")
-	log.infof("Resolving constant %v.<%v>", prefix, constant_name)
-	for i := len(query_path); i >= 0; i -= 1 {
-		candidate := asm_get_path_tmp(self, query_path[:i], constant_name, ".")
-		log.debugf("\tChecking candidate %v", candidate)
-		if value, found := self.constants[candidate]; found {
-			log.debugf("\tFound match! %v = %v", candidate, value)
-			return value, true
-		}
-	}
-	return
-}
 asm_register_block :: proc(self: ^Assembler, path: []string, block: VM_Block) -> ParserError {
 	qualified_name := asm_get_path(self, path[:], "", ":")
 	if qualified_name in self.blocks do return .Duplicate_Identifier
@@ -164,15 +143,24 @@ asm_register_block :: proc(self: ^Assembler, path: []string, block: VM_Block) ->
 	self.blocks[qualified_name] = block
 	return nil
 }
-asm_resolve_block_ref :: proc(self: ^Assembler, ref: BlockRef) -> (label: VM_Label, found: bool = false) {
-	prefix := asm_get_path_tmp(self, ref.block_path, "", ":")
-	log.infof("Resolving label %v <%v>", prefix, ref.ref)
-	for i := len(ref.block_path); i >= 0; i -= 1 {
-		candidate := asm_get_path_tmp(self, ref.block_path[:i], ref.ref, ":")
+asm_resolve_entity_ref :: proc(self: ^Assembler, ref: Relocation) -> (constant: VM_Value, found: bool) {
+	seperator := "." if ref.kind == .Constant else ":"
+	path := asm_get_path_tmp(self, ref.path, "", seperator)
+	log.infof("Resolving %v_ref %v::<%v>`", ref.kind, path, ref.name)
+	for i := len(ref.path); i >= 0; i -= 1 {
+		candidate := asm_get_path_tmp(self, ref.path[:i], ref.name, seperator)
 		log.debugf("\tChecking candidate %v", candidate)
-		if value, found := self.block_name_table[candidate]; found {
-			log.debugf("\tFound match! %v", candidate)
-			return value, true
+		switch ref.kind {
+		case .Constant:
+			if value, found := self.constants[candidate]; found {
+				log.debugf("\tFound match! %v = %v", candidate, value)
+				return value, true
+			}
+		case .Label:
+			if value, found := self.block_name_table[candidate]; found {
+				log.debugf("\tFound match! %v", candidate)
+				return value, true
+			}
 		}
 	}
 	return
@@ -220,22 +208,6 @@ asm_assemble :: proc(
 		return {}, parse_err
 	}
 
-	// TODO: Here is where the constant folding will happen. This can also
-	// fail. so we need to track that.
-
-	for entry in self.relocations {
-		if value, found := asm_resolve_constant(self, entry.block_path, entry.constant_name); found {
-			name := asm_get_path(self, entry.block_path, "", ":")
-			block := &self.blocks[name]
-			inst := &block[entry.offset]
-			assert(inst.op == .Push, "Push should be the only instruction that can accept a constant.")
-			slot := entry.pred ? 1 : 0;
-			inst.imm[slot] = value
-		} else {
-			return program, ParserError.Unable_To_Resolve_Constant_To_Value
-		}
-	}
-
 	valid_blocks := make([dynamic]string, self.allocator)
 	for n, b in self.blocks {
 		if len(b) > 0 && n != "Main" {
@@ -264,20 +236,19 @@ asm_assemble :: proc(
 		return {}, ProgramError.No_Entrypoint_Found
 	}
 
-	// Here is where the block index is deciede and the jumps need to be backpatched
-	for ref in self.block_refs {
-		if value, found := asm_resolve_block_ref(self, ref); found {
-			name := asm_get_path(self, ref.block_path, "", ":")
-			block := &self.blocks[name]
+	// TODO: Here is where the constant folding will happen. This can also
+	// fail. so we need to track that.
+	for ref in self.relocations {
+		if value, found := asm_resolve_entity_ref(self, ref); found {
+			name := asm_get_path(self, ref.path, "", ":")
+			block_id := self.block_name_table[name]
+			block := &program.blocks[block_id]
 			inst := &block[ref.offset]
-			assert(inst.op == .Jump, "Jump should be the only instruction that can accept a label.")
-			slot := ref.pred ? 1 : 0;
-			inst.imm[slot] = value
+			inst.imm[1 if ref.pred else 0] = value
 		} else {
-			return program, ParserError.Unable_To_Resolve_Block_To_Value
+			return program, ParserError.Unable_To_Resolve_Ref_To_Value
 		}
 	}
-
 
 	return program, nil
 
@@ -433,17 +404,19 @@ asm_assemble :: proc(
 					switch lit in parse_literal(self) or_return {
 					case Parsed_ConstantRef:
 						append(&self.relocations, Relocation{
-							block_path = slice.clone(self.current_scope[:], self.allocator),
+							kind = .Constant,
+							path = slice.clone(self.current_scope[:], self.allocator),
 							offset = offset,
 							pred = pred,
-							constant_name = string(lit),
+							name = string(lit),
 						})
 					case Parsed_LabelRef:
-						append(&self.block_refs, BlockRef{
-							block_path = slice.clone(self.current_scope[:], self.allocator),
+						append(&self.relocations, Relocation{
+							kind = .Label,
+							path = slice.clone(self.current_scope[:], self.allocator),
 							offset = offset,
 							pred = pred,
-							ref = string(lit[1:]),
+							name = string(lit[1:]),
 						})
 					case VM_Value:
 						inst.imm[1 if pred else 0] = lit
@@ -458,11 +431,12 @@ asm_assemble :: proc(
 					inst.precondition = parse_precondition(self) or_return
 
 					l0 := expect(self, Token_Label) or_return
-					append(&self.block_refs, BlockRef{
-						block_path = slice.clone(self.current_scope[:], self.allocator),
+					append(&self.relocations, Relocation{
+						kind = .Label,
+						path = slice.clone(self.current_scope[:], self.allocator),
 						offset = offset,
 						pred = false,
-						ref = l0.raw[1:],
+						name = l0.raw[1:],
 					})
 
 					tok := scanner_peek(self) or_return
@@ -470,20 +444,22 @@ asm_assemble :: proc(
 						_ = expect(self, Token_Comma) or_return
 
 						l1 := expect(self, Token_Label) or_return
-						append(&self.block_refs, BlockRef{
-							block_path = slice.clone(self.current_scope[:], self.allocator),
+						append(&self.relocations, Relocation{
+							kind = .Label,
+							path = slice.clone(self.current_scope[:], self.allocator),
 							offset = offset,
 							pred = true,
-							ref = l1.raw[1:],
+							name = l1.raw[1:],
 						})
 					}
 				} else {
 					l := expect(self, Token_Label) or_return
-					append(&self.block_refs, BlockRef{
-						block_path = slice.clone(self.current_scope[:], self.allocator),
+					append(&self.relocations, Relocation{
+						kind = .Label,
+						path = slice.clone(self.current_scope[:], self.allocator),
 						offset = offset,
 						pred = false,
-						ref = l.raw[1:],
+						name = l.raw[1:],
 					})
 				}
 
