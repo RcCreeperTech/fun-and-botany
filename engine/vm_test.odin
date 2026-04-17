@@ -6,8 +6,10 @@ import "core:testing"
 
 @(test)
 vm_test_push_pop :: proc(t: ^testing.T) {
-
-	program, asm_err := asm_assemble(`
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	program, asm_err := asm_assemble(&assembler, `
 		Main:
 			push 123
 			push false
@@ -26,7 +28,10 @@ vm_test_push_pop :: proc(t: ^testing.T) {
 
 @(test)
 vm_test_underflow :: proc(t: ^testing.T) {
-	program, asm_err := asm_assemble(`
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	program, asm_err := asm_assemble(&assembler,`
 		Main:
 			pop
 		end
@@ -40,7 +45,10 @@ vm_test_underflow :: proc(t: ^testing.T) {
 
 @(test)
 vm_test_add :: proc(t: ^testing.T) {
-	program, asm_err := asm_assemble(`
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	program, asm_err := asm_assemble(&assembler, `
 		Main:
 			push 34
 			push 35
@@ -58,7 +66,10 @@ vm_test_add :: proc(t: ^testing.T) {
 
 @(test)
 vm_test_bad_add :: proc(t: ^testing.T) {
-	program, asm_err := asm_assemble(`
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	program, asm_err := asm_assemble(&assembler, `
 		Main:
 			push 34
 			push false
@@ -74,7 +85,10 @@ vm_test_bad_add :: proc(t: ^testing.T) {
 
 @(test)
 vm_test_sub_float :: proc(t: ^testing.T) {
-	program, asm_err := asm_assemble(`
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	program, asm_err := asm_assemble(&assembler, `
 		Main:
 			push 34
 			push 35
@@ -93,8 +107,10 @@ vm_test_sub_float :: proc(t: ^testing.T) {
 // TODO: In order to restore this test, A distinction must be made between jump and call
 @(test)
 vm_test_overflow :: proc(t: ^testing.T) {
-
-	program, asm_err := asm_assemble(`
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	program, asm_err := asm_assemble(&assembler, `
 		Main:
 			push 123
 			jump :Main

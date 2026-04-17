@@ -18,5 +18,4 @@ Main:
 	push false
 	push #181818ff ; Random Comment
 	push #281858fF
-	push :Main
 end

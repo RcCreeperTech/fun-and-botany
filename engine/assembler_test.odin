@@ -2,14 +2,55 @@
 package web_testing
 
 import "core:fmt"
+import "core:math"
 import "core:log"
 import "core:strings"
 import "core:testing"
 
 @(test)
+asm_test_constants :: proc(t: ^testing.T) {
+	source: string = #load("./test_cases/constants.asm", string)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
+	testing.expect_value(t, err, nil)
+
+	// Expected Program Output
+	expected := VM_Program {
+	    blocks = {
+	        {
+	            { op = .Push,  imm = { i32(1337), nil, } },
+	            { op = .Push,  imm = { f32(3.14159), nil, } },
+	            { op = .Push,  imm = { Color { 255, 0, 0, 255, }, nil, } },
+	            { op = .Push,  imm = { i32(4), nil, } },
+	        },
+	        {
+	            { op = .Push,  imm = { i32(4), nil, } },
+	        },
+	        {
+	            { op = .Push,  imm = { i32(1337), nil, } },
+	            { op = .Push,  imm = { Color { 255, 0, 0, 255, }, nil, } },
+	            { op = .Push,  imm = { true, nil, } },
+	            { op = .Push,  imm = { true, nil, } },
+	            { precondition = .Eq,  op = .Push,  imm = { Color { 255, 0, 0, 255, }, Color { 255, 0, 255, 0, }, } },
+	            { op = .Push,  imm = { i32(4), nil, } },
+	        },
+	        {
+	            { op = .Push,  imm = { i32(456), nil, } },
+	        },
+	    }
+	}
+	expect_program(t, prog, expected)
+}
+
+@(test)
 asm_test_simple :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/simple.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
 	expected := VM_Program {
@@ -22,7 +63,10 @@ asm_test_simple :: proc(t: ^testing.T) {
 @(test)
 asm_test_get_set :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/get_set.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
 	dump_program(prog)
@@ -32,7 +76,10 @@ asm_test_get_set :: proc(t: ^testing.T) {
 @(test)
 asm_test_get_set_failing :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/get_set_failing.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, ProgramError.Unknown_Parameter)
 
 	dump_program(prog)
@@ -42,7 +89,10 @@ asm_test_get_set_failing :: proc(t: ^testing.T) {
 @(test)
 asm_test_basic_ops :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/basic_ops.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
 	expected := VM_Program {
@@ -84,7 +134,10 @@ asm_test_basic_ops :: proc(t: ^testing.T) {
 @(test)
 asm_test_push_then_pop :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/push_then_pop.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 	expected := VM_Program {
 		blocks = {
@@ -104,7 +157,10 @@ asm_test_push_then_pop :: proc(t: ^testing.T) {
 @(test)
 asm_test_push_literals :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/push_literals.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 	expected := VM_Program {
 		blocks = {
@@ -120,7 +176,6 @@ asm_test_push_literals :: proc(t: ^testing.T) {
 				{op = .Push, imm = {false, nil}},
 				{op = .Push, imm = {Color{255, 24, 24, 24}, nil}},
 				{op = .Push, imm = {Color{255, 88, 24, 40}, nil}},
-				{op = .Push, imm = {VM_Label(0), nil}},
 			},
 		},
 	}
@@ -130,7 +185,10 @@ asm_test_push_literals :: proc(t: ^testing.T) {
 @(test)
 asm_test_push_with_precond :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/push_with_precond.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 	expected := VM_Program {
 		blocks = {
@@ -147,8 +205,12 @@ asm_test_push_with_precond :: proc(t: ^testing.T) {
 @(test)
 asm_test_jump_around :: proc(t: ^testing.T) {
 	source: string = #load("./test_cases/jump_around.asm")
-	prog, err := asm_assemble(source)
+	assembler: Assembler
+	asm_init(&assembler)
+	defer asm_cleanup(&assembler)
+	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
+
 	expected := VM_Program {
 		blocks = {
 			{

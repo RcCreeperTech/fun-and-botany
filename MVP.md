@@ -45,16 +45,6 @@ There needs to be a way to get and set parameters with the visual editor. This i
 
 ---
 
-## Constants
-Tags: #Assembler
-
-The assembler needs to tokenize, parse, and emit constants defined by user
-source code. Constants are declarations that can be bound by block scoping
-rules, so constants defined in block `Main:` would be referred to via
-`Main:CONSTANT_NAME`
-
----
-
 ## Constant Folding
 Tags: #Assembler
 
