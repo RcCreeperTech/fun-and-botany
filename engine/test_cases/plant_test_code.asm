@@ -3,15 +3,13 @@ const RIGHT_TURN_ANGLE = 0.69813 ; TAU / 9
 const LEFT_TURN_ANGLE = -0.69813 ; -TAU / 9 TODO: Unary minus for constant expressions
 
 Colors:
-    const BROWN = #D27D2DFF ; RGBA hex code
+    const BROWN = #D27F2DFF
     const PINK  = #FF00FFFF
 end
 
-Bud:
-    get $Growth_Rate
+Main:
     push END_GROWTH_RATE
-    push 5.0
-    mul
+    get $Growth_Rate
     ret/gt ; Conditional consumes both $growth_rate and the Calculated value
 
     rand
@@ -19,8 +17,8 @@ Bud:
     jump/gt :stem, :node_or_petal
 
     stem:
-        push 0
-        push :Bud
+        push 0 ; Angle
+        push :Main ; Start State
         spawn
 
         push :Stem
@@ -28,8 +26,8 @@ Bud:
     end
 
     node_or_petal:
-        rand
         push 0.95
+        rand
         push/lt :Node, :Petal
         set $State
     end
@@ -38,19 +36,19 @@ end
 Node:
     rand
     push 0.88
-    jump/gt :turn_right ; This seems almost function like the only thing missing is parameter passing
+    call/gt :turn_right
     turn_right:
         push RIGHT_TURN_ANGLE
-        push :Bud
+        push :Main
         spawn
     end
 
     rand
     push 0.77
-    jump/gt :turn_left
+    call/gt :turn_left
     turn_left:
         push LEFT_TURN_ANGLE ; Should this be ok?
-        push :Bud
+        push :Main
         spawn
     end
 

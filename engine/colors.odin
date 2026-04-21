@@ -45,7 +45,11 @@ to_color :: proc {
 
 
 rgba_u32_to_color :: proc(c: u32) -> Color {
-	return transmute(Color)c
+	r := u8(c >> 24)
+	g := u8(c >> 16)
+	b := u8(c >> 8)
+	a := u8(c >> 0)
+	return {r, g, b, a}
 }
 
 fcolor_to_color :: proc(c: FColor) -> Color {

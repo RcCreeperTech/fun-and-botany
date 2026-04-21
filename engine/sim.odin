@@ -1,5 +1,6 @@
 package web_testing
 
+import "core:log"
 import "base:intrinsics"
 import hm "core:container/handle_map"
 import "core:math"
@@ -33,8 +34,7 @@ Collision_Categories :: enum u64 {
 }
 
 sim_update :: proc(app: ^ApplicationState, delta_time: f32) {
-	// TODO: Inject resources into the root and set any global sim parameters
-	sim_execute_debug_plant_test_code(app, delta_time)
+	sim_execute_plant_bytecode(app, delta_time)
 	sim_tick_cells(app, delta_time)
 	b2.World_Step(app.physics_world, f32(delta_time), 4)
 }
@@ -83,8 +83,7 @@ Sim_Element :: struct {
 	density:                 f32,
 	growth_rate:             f32,
 	depth:                   u8,
-	debug_state:             Sim_Debug_GrowthState, // TODO: Elements will be state machines with finite memory
-	entrypoint: VM_Label,
+	vm_entrypoint:           VM_Label,
 	// Physics handles
 	body:                    b2.BodyId,
 	shape:                   b2.ShapeId,
@@ -96,6 +95,7 @@ sim_element_spawn :: proc(
 	parent: ^Sim_Element,
 	theta: f32 = 0,
 	mass: f32 = 1,
+	vm_entrypoint: VM_Label = VM_Label(0),
 ) {
 	parent_tip_local := Vec2{0, parent.length}
 	parent_transform := b2.Body_GetTransform(parent.body)
@@ -138,7 +138,7 @@ sim_element_spawn :: proc(
 		color            = parent.color,
 		growth_rate      = SIM_BASELINE_GROWTH_RATE,
 		depth            = parent.depth + 1,
-		debug_state      = parent.debug_state,
+		vm_entrypoint    = vm_entrypoint,
 		body             = body,
 		shape            = shape,
 		joint            = joint,
@@ -153,33 +153,13 @@ sim_element_spawn :: proc(
 	}
 }
 
-sim_execute_debug_plant_test_code :: proc(app: ^ApplicationState, dt: f32) {
-	it := hm.iterator_make(&g_app_state.elements)
+sim_execute_plant_bytecode :: proc(app: ^ApplicationState, dt: f32) {
+	it := hm.iterator_make(&app.elements)
 	for element, h in hm.iterate(&it) {
-
-		if element.depth == SIM_MAX_DEPTH {
-			element.debug_state = .Petal
-		}
-
-		switch element.debug_state {
-		case .Bud:
-			if element.growth_rate <= SIM_END_GROWTH_RATE * 5 { 	// Only try to apply next state once growth slowed down sufficiently
-				element.debug_state = .Node
-			}
-		case .Node:
-			element.debug_state = .Bud
-			sim_element_spawn(app, element, -math.τ / 9)
-			sim_element_spawn(app, element, math.τ / 9)
-			element.debug_state = .Stem
-		case .Stem:
-			// Terminal State
-			// Todo: auxilary growth
-			element.target_color = BROWN
-			element.target_length += 0.00001
-			element.target_thickness += 0.00005
-		case .Petal:
-			// Terminal state
-			element.target_color = PINK
+		log.debugf("Cell %v is in state %v", h, element.vm_entrypoint)
+		err := vm_run(&app.vm, app.loaded_program, element)
+		if err != nil {
+			log.errorf("VM Error: %v", err)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 #+feature using-stmt
 package web_testing
 
+import "core:log"
 import wgl "WebGL"
 import "base:intrinsics"
 import "base:runtime"
@@ -31,13 +32,23 @@ ApplicationState :: struct {
 	ctx:                      runtime.Context,
 	ground:                   b2.BodyId,
 	vm: 					  VM,
-	test_program: VM_Program,
+	loaded_program: 		  VM_Program,
 }
 
 // TODO: @(private="file")
 g_app_state: ApplicationState
 
 main :: proc() {
+	when ODIN_DEBUG {
+		context.logger = log.create_console_logger(opt = {
+			.Level,
+			.Terminal_Color,
+			.Short_File_Path,
+			.Line,
+			.Procedure,
+		})
+	}
+
 	app := &g_app_state
 
 	app.ctx = context
@@ -85,7 +96,6 @@ main :: proc() {
 	root := Sim_Element {
 		color            = DARKGREEN,
 		target_color     = DARKGREEN,
-		debug_state      = .Bud,
 		growth_rate      = SIM_BASELINE_GROWTH_RATE,
 		target_length    = 1,
 		target_thickness = 0.4,
@@ -119,11 +129,20 @@ main :: proc() {
 
 	app.root_element = hm.add(&app.elements, root)
 
+	context.logger.lowest_level = .Error
+	source: string = #load("./test_cases/plant_test_code.asm")
+	assembler: Assembler
+	asm_init(&assembler)
+	prog, err := asm_assemble(&assembler, source)
+	assert(err == nil)
+	app.loaded_program = prog
+	context.logger.lowest_level = .Debug
 }
 
 @(export)
 step :: proc(delta_time: f64) -> (keep_going: bool) {
 	app := &g_app_state
+	context = app.ctx
 	free_all(context.temp_allocator)
 	app.cumulative_time += delta_time
 	// Reset after 1 hour (3600 seconds) to stay in high-precision range

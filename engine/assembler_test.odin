@@ -2,7 +2,6 @@
 package web_testing
 
 import "core:fmt"
-import "core:math"
 import "core:log"
 import "core:strings"
 import "core:testing"
@@ -20,56 +19,52 @@ asm_test_plant_test_code :: proc(t: ^testing.T) {
 	expected := VM_Program {
 	    blocks = {
 	        {
-	        },
-	        {
-	            { op = .GetParam,  imm = { VM_Param.Growth_Rate, nil, } },
 	            { op = .Push,  imm = { f32(0.05), nil, } },
-	            { op = .Push,  imm = { f32(5), nil, } },
-	            { op = .Multiply, },
+	            { op = .GetParam,  imm = { VM_Param.Growth_Rate, nil, } },
 	            { precondition = .Gt,  op = .EarlyReturn, },
 	            { op = .Rand, },
 	            { op = .Push,  imm = { f32(0.33), nil, } },
-	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(3), VM_Label(2), } },
+	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(2), VM_Label(1), } },
 	        },
 	        {
-	            { op = .Rand, },
 	            { op = .Push,  imm = { f32(0.94999999), nil, } },
-	            { precondition = .Lt,  op = .Push,  imm = { VM_Label(4), VM_Label(7), } },
+	            { op = .Rand, },
+	            { precondition = .Lt,  op = .Push,  imm = { VM_Label(3), VM_Label(6), } },
 	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
 	        },
 	        {
-	            { op = .Push,  imm = { i32(0), nil, } },
-	            { op = .Push,  imm = { VM_Label(1), nil, } },
+	            { op = .Push,  imm = { f32(0), nil, } },
+	            { op = .Push,  imm = { VM_Label(0), nil, } },
 	            { op = .Spawn, },
-	            { op = .Push,  imm = { VM_Label(8), nil, } },
+	            { op = .Push,  imm = { VM_Label(7), nil, } },
 	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
 	        },
 	        {
 	            { op = .Rand, },
 	            { op = .Push,  imm = { f32(0.88), nil, } },
-	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(6), nil, } },
+	            { precondition = .Gt,  op = .Call,  imm = { VM_Label(5), nil, } },
 	            { op = .Rand, },
 	            { op = .Push,  imm = { f32(0.76999998), nil, } },
-	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(5), nil, } },
-	            { op = .Push,  imm = { VM_Label(8), nil, } },
+	            { precondition = .Gt,  op = .Call,  imm = { VM_Label(4), nil, } },
+	            { op = .Push,  imm = { VM_Label(7), nil, } },
 	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
 	        },
 	        {
 	            { op = .Push,  imm = { f32(-0.69813), nil, } },
-	            { op = .Push,  imm = { VM_Label(1), nil, } },
+	            { op = .Push,  imm = { VM_Label(0), nil, } },
 	            { op = .Spawn, },
 	        },
 	        {
 	            { op = .Push,  imm = { f32(0.69813), nil, } },
-	            { op = .Push,  imm = { VM_Label(1), nil, } },
+	            { op = .Push,  imm = { VM_Label(0), nil, } },
 	            { op = .Spawn, },
 	        },
 	        {
-	            { op = .Push,  imm = { Color { 255, 255, 0, 255, }, nil, } },
+	            { op = .Push,  imm = { Color { 255, 0, 255, 255, }, nil, } },
 	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
 	        },
 	        {
-	            { op = .Push,  imm = { Color { 255, 45, 125, 210, }, nil, } },
+	            { op = .Push,  imm = { Color { 210, 127, 45, 255, }, nil, } },
 	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
 	            { op = .GetParam,  imm = { VM_Param.Length, nil, } },
 	            { op = .Push,  imm = { f32(0.001), nil, } },
@@ -98,24 +93,24 @@ asm_test_constants :: proc(t: ^testing.T) {
 	expected := VM_Program {
 	    blocks = {
 	        {
-	            { op = .Push,  imm = { i32(1337), nil, } },
+	            { op = .Push,  imm = { f32(1337), nil, } },
 	            { op = .Push,  imm = { f32(3.14159), nil, } },
 	            { op = .Push,  imm = { Color { 255, 0, 0, 255, }, nil, } },
-	            { op = .Push,  imm = { i32(4), nil, } },
+	            { op = .Push,  imm = { f32(4), nil, } },
 	        },
 	        {
-	            { op = .Push,  imm = { i32(4), nil, } },
+	            { op = .Push,  imm = { f32(4), nil, } },
 	        },
 	        {
-	            { op = .Push,  imm = { i32(1337), nil, } },
+	            { op = .Push,  imm = { f32(1337), nil, } },
 	            { op = .Push,  imm = { Color { 255, 0, 0, 255, }, nil, } },
 	            { op = .Push,  imm = { true, nil, } },
 	            { op = .Push,  imm = { true, nil, } },
 	            { precondition = .Eq,  op = .Push,  imm = { Color { 255, 0, 0, 255, }, Color { 255, 0, 255, 0, }, } },
-	            { op = .Push,  imm = { i32(4), nil, } },
+	            { op = .Push,  imm = { f32(4), nil, } },
 	        },
 	        {
-	            { op = .Push,  imm = { i32(456), nil, } },
+	            { op = .Push,  imm = { f32(456), nil, } },
 	        },
 	    }
 	}
@@ -183,32 +178,32 @@ asm_test_basic_ops :: proc(t: ^testing.T) {
 	expected := VM_Program {
 		blocks = {
 			{
-				{op = .Push, imm = {i32(1), nil}},
-				{op = .Push, imm = {i32(2), nil}},
+				{op = .Push, imm = {f32(1), nil}},
+				{op = .Push, imm = {f32(2), nil}},
 				{op = .Pop},
-				{op = .Push, imm = {i32(0), nil}},
-				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {f32(0), nil}},
+				{op = .Push, imm = {f32(0), nil}},
 				{precondition = .Eq, op = .Pop},
-				{op = .Push, imm = {i32(1), nil}},
-				{op = .Push, imm = {i32(2), nil}},
+				{op = .Push, imm = {f32(1), nil}},
+				{op = .Push, imm = {f32(2), nil}},
 				{op = .Add},
-				{op = .Push, imm = {i32(3), nil}},
-				{op = .Push, imm = {i32(0), nil}},
-				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {f32(3), nil}},
+				{op = .Push, imm = {f32(0), nil}},
+				{op = .Push, imm = {f32(0), nil}},
 				{precondition = .Eq, op = .Add},
-				{op = .Push, imm = {i32(6), nil}},
+				{op = .Push, imm = {f32(6), nil}},
 				{op = .Subtract},
-				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {f32(0), nil}},
 				{precondition = .Eq, op = .Rand},
 				{op = .Pop},
-				{op = .Push, imm = {i32(3), nil}},
-				{op = .Push, imm = {i32(4), nil}},
-				{op = .Push, imm = {i32(1000), nil}},
+				{op = .Push, imm = {f32(3), nil}},
+				{op = .Push, imm = {f32(4), nil}},
+				{op = .Push, imm = {f32(1000), nil}},
 				{op = .Push, imm = {f32(0.5), nil}},
 				{op = .Multiply},
-				{op = .Push, imm = {i32(1000), nil}},
+				{op = .Push, imm = {f32(1000), nil}},
 				{precondition = .Gt, op = .Multiply},
-				{op = .Push, imm = {i32(3), nil}},
+				{op = .Push, imm = {f32(3), nil}},
 				{op = .Divide},
 			},
 		},
@@ -227,11 +222,11 @@ asm_test_push_then_pop :: proc(t: ^testing.T) {
 	expected := VM_Program {
 		blocks = {
 			{
-				{op = .Push, imm = {i32(123), nil}},
+				{op = .Push, imm = {f32(123), nil}},
 				{op = .Pop},
-				{op = .Push, imm = {i32(456), nil}},
-				{op = .Push, imm = {i32(1), nil}},
-				{op = .Push, imm = {i32(1), nil}},
+				{op = .Push, imm = {f32(456), nil}},
+				{op = .Push, imm = {f32(1), nil}},
+				{op = .Push, imm = {f32(1), nil}},
 				{precondition = .Eq, op = .Pop},
 			},
 		},
@@ -251,12 +246,12 @@ asm_test_push_literals :: proc(t: ^testing.T) {
 		blocks = {
 			{
 				{op = .Push, imm = {f32(0.1), nil}},
-				{op = .Push, imm = {i32(1234), nil}},
-				{op = .Push, imm = {i32(-1234), nil}},
+				{op = .Push, imm = {f32(1234), nil}},
+				{op = .Push, imm = {f32(-1234), nil}},
 				{op = .Push, imm = {f32(0.1), nil}},
 				{op = .Push, imm = {f32(-0.119999997), nil}},
-				{op = .Push, imm = {i32(1), nil}},
-				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {f32(1), nil}},
+				{op = .Push, imm = {f32(0), nil}},
 				{op = .Push, imm = {true, nil}},
 				{op = .Push, imm = {false, nil}},
 				{op = .Push, imm = {Color{255, 24, 24, 24}, nil}},
@@ -278,9 +273,9 @@ asm_test_push_with_precond :: proc(t: ^testing.T) {
 	expected := VM_Program {
 		blocks = {
 			{
-				{op = .Push, imm = {i32(100), nil}},
-				{op = .Push, imm = {i32(200), nil}},
-				{precondition = .Gt, op = .Push, imm = {i32(1001), i32(1234)}},
+				{op = .Push, imm = {f32(100), nil}},
+				{op = .Push, imm = {f32(200), nil}},
+				{precondition = .Gt, op = .Push, imm = {f32(1001), f32(1234)}},
 			},
 		},
 	}
@@ -299,12 +294,12 @@ asm_test_jump_around :: proc(t: ^testing.T) {
 	expected := VM_Program {
 		blocks = {
 			{
-				{op = .Push, imm = {i32(1), nil}},
-				{op = .Push, imm = {i32(0), nil}},
+				{op = .Push, imm = {f32(1), nil}},
+				{op = .Push, imm = {f32(0), nil}},
 				{precondition = .Eq, op = .Jump, imm = {VM_Label(1), VM_Label(2)}},
 			},
-			{{op = .Push, imm = {i32(67), nil}}},
-			{{op = .Push, imm = {i32(123), nil}}, {op = .Jump, imm = {VM_Label(3), nil}}},
+			{{op = .Push, imm = {f32(67), nil}}},
+			{{op = .Push, imm = {f32(123), nil}}, {op = .Jump, imm = {VM_Label(3), nil}}},
 			{{op = .Jump, imm = {VM_Label(1), nil}}},
 		},
 	}
@@ -356,8 +351,6 @@ dump_program :: proc(p: VM_Program) {
 			fmt.sbprint(sb, "}, ")
 		case f32:
 			fmt.sbprintf(sb, "f32(%v), ", v)
-		case i32:
-			fmt.sbprintf(sb, "i32(%v), ", v)
 		case bool:
 			fmt.sbprintf(sb, "%v, ", v)
 		case VM_Label:

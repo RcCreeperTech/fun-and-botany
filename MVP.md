@@ -63,13 +63,6 @@ The UI needs to be able to represent Nested constant expressions that can refer 
 
 ---
 
-## Get the sim off the hardcoded path
-Tags: #Simulation #VM
-
-Currently, the simulation is using a hard-coded program to simulate a user provided plant specification. This needs to be removed and replaced with proper VM integration, including paramter, get/set behavior.
-
----
-
 ## Editor Save/Load
 Tags: #Editor
 

@@ -31,6 +31,7 @@ Token_Keyword :: enum {
 	Get,
 	Set,
 	Ret,
+	Call,
 }
 Token_Identifier :: struct {}
 Token_Parameter :: struct {}
@@ -42,8 +43,7 @@ Token_Slash :: struct {}
 Token_Comma :: struct {}
 Token_End_Of_Statement :: struct {}
 Token_Label :: struct {}
-Token_IntLit :: i32
-Token_FloatLit :: f32
+Token_NumberLit :: f32
 Token_HexLit :: u32
 Token_BoolLit :: bool
 
@@ -57,8 +57,7 @@ Token_Kind :: union {
 	Token_Slash,
 	Token_Comma,
 	Token_Label,
-	Token_IntLit,
-	Token_FloatLit,
+	Token_NumberLit,
 	Token_HexLit,
 	Token_BoolLit,
 	Token_Keyword,
@@ -208,6 +207,14 @@ asm_assemble :: proc(
 		return {}, parse_err
 	}
 
+	if entry_block, found := self.blocks["Main"]; found {
+		if len(entry_block) == 0 {
+			return {}, ProgramError.No_Entrypoint_Found
+		}
+	} else {
+		return {}, ProgramError.No_Entrypoint_Found
+	}
+
 	valid_blocks := make([dynamic]string, self.allocator)
 	for n, b in self.blocks {
 		if len(b) > 0 && n != "Main" {
@@ -219,7 +226,6 @@ asm_assemble :: proc(
 
 	block_id: int = 0
 	program.blocks = make([]VM_Block, len(valid_blocks), self.allocator)
-	found_main := false
 	log.infof("Linearizing %v Blocks...", len(valid_blocks))
 	for name in valid_blocks {
 		log.infof("Block `%v` resolved to %v", name, block_id)
@@ -227,14 +233,8 @@ asm_assemble :: proc(
 
 		program.blocks[block_id] = self.blocks[name]
 		block_id += 1
-		if name == "Main" {
-			found_main = true
-		}
 	}
 
-	if !found_main {
-		return {}, ProgramError.No_Entrypoint_Found
-	}
 
 	// TODO: Here is where the constant folding will happen. This can also
 	// fail. so we need to track that.
@@ -278,9 +278,7 @@ asm_assemble :: proc(
 
 			tok := scanner_next(self) or_return
 			#partial switch k in tok.kind {
-			case Token_IntLit:
-				asm_register_constant(self, self.current_scope[:], ident.raw, k) or_return
-			case Token_FloatLit:
+			case Token_NumberLit:
 				asm_register_constant(self, self.current_scope[:], ident.raw, k) or_return
 			case Token_HexLit:
 				c := rgba_u32_to_color(k)
@@ -423,6 +421,49 @@ asm_assemble :: proc(
 					}
 					return
 				}
+			case .Call:
+				inst.op = .Call
+				tok := scanner_peek(self) or_return
+
+				if check_token(tok, Token_Slash) {
+					_ = expect(self, Token_Slash) or_return
+					inst.precondition = parse_precondition(self) or_return
+
+					l0 := expect(self, Token_Label) or_return
+					append(&self.relocations, Relocation{
+						kind = .Label,
+						path = slice.clone(self.current_scope[:], self.allocator),
+						offset = offset,
+						pred = false,
+						name = l0.raw[1:],
+					})
+
+					tok := scanner_peek(self) or_return
+					if check_token(tok, Token_Comma) {
+						_ = expect(self, Token_Comma) or_return
+
+						l1 := expect(self, Token_Label) or_return
+						append(&self.relocations, Relocation{
+							kind = .Label,
+							path = slice.clone(self.current_scope[:], self.allocator),
+							offset = offset,
+							pred = true,
+							name = l1.raw[1:],
+						})
+					}
+				} else {
+					l := expect(self, Token_Label) or_return
+					append(&self.relocations, Relocation{
+						kind = .Label,
+						path = slice.clone(self.current_scope[:], self.allocator),
+						offset = offset,
+						pred = false,
+						name = l.raw[1:],
+					})
+				}
+
+				_ = expect(self, Token_End_Of_Statement) or_return
+
 			case .Jump:
 				inst.op = .Jump
 				tok := scanner_peek(self) or_return
@@ -540,9 +581,7 @@ asm_assemble :: proc(
 			tok := scanner_next(self) or_return
 
 			#partial switch k in tok.kind {
-			case Token_IntLit:
-				result = VM_Value(k)
-			case Token_FloatLit:
+			case Token_NumberLit:
 				result = VM_Value(k)
 			case Token_BoolLit:
 				result = VM_Value(k)
@@ -719,7 +758,7 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
 			}
 		case .Digits:
 			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_IntLit{}), .None
+				return end_token(s, next, Token_NumberLit{}), .None
 			} else {
 				switch c {
 				case '.':
@@ -728,7 +767,7 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
 				case '0' ..= '9', '_':
 					advance(s)
 				case:
-					return end_token(s, next, Token_IntLit{}), .None
+					return end_token(s, next, Token_NumberLit{}), .None
 				}
 			}
 		case .Colon:
@@ -766,13 +805,13 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
 			}
 		case .FloatLit:
 			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_FloatLit{}), .None
+				return end_token(s, next, Token_NumberLit{}), .None
 			} else {
 				switch c {
 				case '0' ..= '9', '_':
 					advance(s)
 				case:
-					return end_token(s, next, Token_FloatLit{}), .None
+					return end_token(s, next, Token_NumberLit{}), .None
 				}
 			}
 		case .HexLit:
@@ -838,16 +877,14 @@ scanner_next :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
 				out.kind = Token_Keyword.Set
 			case "ret":
 				out.kind = Token_Keyword.Ret
+			case "call":
+				out.kind = Token_Keyword.Call
 			}
-		case Token_IntLit:
-			v, ok := strconv.parse_i64(out.raw, 10)
-			assert(ok)
-			out.kind = i32(v)
 		case Token_HexLit:
 			v, ok := strconv.parse_u64(out.raw[1:], 16)
 			assert(ok)
 			out.kind = u32(v)
-		case Token_FloatLit:
+		case Token_NumberLit:
 			v, _, ok := strconv.parse_f32_prefix(out.raw)
 			assert(ok)
 			out.kind = v

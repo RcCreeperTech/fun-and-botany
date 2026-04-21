@@ -22,7 +22,7 @@ vm_test_push_pop :: proc(t: ^testing.T) {
 	err := vm_run(&vm, program)
 	testing.expect_value(t, err, VM_Error.None)
 	v := sm.pop_back(&vm.stack)
-	testing.expect_value(t, v, i32(123))
+	testing.expect_value(t, v, f32(123))
 }
 
 
@@ -61,7 +61,7 @@ vm_test_add :: proc(t: ^testing.T) {
 	err := vm_run(&vm, program)
 	testing.expect_value(t, err, VM_Error.None)
 	v := sm.pop_back(&vm.stack)
-	testing.expect_value(t, v, i32(69))
+	testing.expect_value(t, v, f32(69))
 }
 
 @(test)
@@ -101,7 +101,7 @@ vm_test_sub_float :: proc(t: ^testing.T) {
 	err := vm_run(&vm, program)
 	testing.expect_value(t, err, VM_Error.None)
 	v := sm.pop_back(&vm.stack)
-	testing.expect_value(t, v, i32(1))
+	testing.expect_value(t, v, f32(1))
 }
 
 // TODO: In order to restore this test, A distinction must be made between jump and call
