@@ -1,0 +1,65 @@
+program         = { top_level_def | NEWLINE } ;
+
+top_level_def   = [ annotation ] ( const_def | func_def ) ;
+
+const_def       = "def" identifier "=" expr NEWLINE ;
+func_def        = "def" identifier [ "(" parameter_list ")" ] ":" NEWLINE
+                    { stmt }
+                  "end" NEWLINE ;
+
+parameter_list   = { identifier "," { NEWLINE } } [ identifier [ "," ] { NEWLINE } ] ;
+
+(* Annotations *)
+annotation      = "@" ( identifier | "(" attr_list ")" ) [ NEWLINE ] ;
+attr_list       = { identifier ","  { NEWLINE } } [ identifier [ "," ] { NEWLINE } ] ;
+
+(* Statements *)
+stmt            = assign_stmt
+                | if_stmt
+                | return_stmt
+                | call_stmt
+                | NEWLINE ;
+
+assign_stmt  = ( identifier | cell_access ) "=" expr NEWLINE ;
+if_stmt          = "if" expr ":" NEWLINE
+                     { stmt }
+                   [ "else" ":" NEWLINE
+                     { stmt } ]
+                   "end" NEWLINE ;
+return_stmt      = "return" NEWLINE ;
+call_stmt        = builtin_call NEWLINE ;
+
+(* Expressions *)
+expr            = ternary_expr ;
+ternary_expr    = or_expr [ "if" or_expr "else" or_expr ] ;
+or_expr         = and_expr { "or" and_expr } ;
+and_expr        = cmp_expr { "and" cmp_expr } ;
+cmp_expr        = add_expr [ ( "<" | "<=" | ">" | ">=" | "==" | "!=" ) add_expr ] ;
+add_expr        = mul_expr { ( "+" | "-" ) mul_expr } ;
+mul_expr        = unary_expr { ( "*" | "/" ) unary_expr } ;
+unary_expr      = ( "!" | "-" ) unary_expr
+                | primary ;
+
+primary         = number_lit
+                | hex_lit
+                | state_ref
+                | prop_access
+                | identifier
+                | call_expr
+                | "(" expr ")" ;
+
+(* Atoms *)
+prop_access     = identifier "." identifier ;
+state_ref       = ":" identifier ;
+call_expr       = "$" identifier [ "(" arg_list ")" ] ;
+arg_list        = { expr ","  { NEWLINE } } [ expr [ "," ] { NEWLINE } ] ;
+
+(* Terminals *)
+number_lit      = [ "-" ] digit { digit } [ "." { digit } ] ;
+hex_lit         = "#" hex_digit { hex_digit } ;
+identifier      = alpha { alpha | digit | "_" } ;
+alpha           = "a" ... "z" | "A" ... "Z" | "_" ;
+digit           = "0" ... "9" ;
+hex_digit       = digit | "a" ... "f" | "A" ... "F" ;
+NEWLINE         = "\n" ;
+COMMENT         = "//" { any_char } NEWLINE ;

@@ -1,0 +1,50 @@
+def END_GROWTH_RATE = 0.05
+def PI = 3.14159
+def TAU = 2 * PI
+def TURN_ANGLE = TAU / 9
+
+// Some cool colors
+def BROWN = #D27F2DFF
+def PINK  = #FF_00_FF_FF
+
+@(entrypoint, state)
+def main(cell):
+    // Pointless math for demo only
+    FOO = ( PI + 6.7 ) / 45
+
+    if cell.growth_rate <= END_GROWTH_RATE:
+        return
+    end
+
+    if $Rand <= 0.33:
+        $Spawn(0, :main)
+        cell.state = :stem
+    else:
+        cell.state = :node if $Rand > .95 else :petal
+    end
+end
+
+@state
+def node(cell):
+    if $Rand > 0.88:
+        $Spawn(TURN_ANGLE, :main)
+    end
+
+    if $Rand > 0.77:
+        $Spawn(-TURN_ANGLE, :main)
+    end
+
+    cell.state = :stem
+end
+
+@state
+def stem(cell):
+    cell.color = Colors.BROWN
+    cell.length = cell.length + 0.001
+    cell.thickness = cell.thickness + 0.005
+end
+
+@(terminal, state)
+def petal(cell):
+    cell.color = Colors.PINK
+end
