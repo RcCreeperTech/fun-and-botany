@@ -171,7 +171,8 @@ test_parser_ternarys :: proc(t: ^testing.T) {
 make_test_parser :: proc(source: string) -> ^Parser {
 	tokens := scanner_collect(source)
 	parser := new(Parser)
-	parser_init(parser, tokens)
+	diagnostics := new([dynamic]Diagnostic)
+	parser_init(parser, tokens, diagnostics)
 	return parser
 }
 
@@ -179,12 +180,15 @@ make_test_parser :: proc(source: string) -> ^Parser {
 delete_test_parser :: proc(p: ^Parser) {
 	parser_deinit(p)
 	delete(p.tokens)
+	delete(p.diagnostics^)
+	free(p.diagnostics)
 	free(p)
 }
 
 @(private="file")
 expect_diagnostics :: proc(t: ^testing.T, p: ^Parser, expected: ..string) {
 	testing.expect(t, len(p.diagnostics) == len(expected), "The number of diagnostics must match")
+
 
 	for i in 0..<len(p.diagnostics) {
 		testing.expect_value(t, p.diagnostics[i].message, expected[i])
@@ -194,6 +198,7 @@ expect_diagnostics :: proc(t: ^testing.T, p: ^Parser, expected: ..string) {
 
 @(private="file")
 dump_parsing_diagnostics :: proc(p: ^Parser) {
+	if len(p.diagnostics) == 0 do return
 	for diagnostic in p.diagnostics {
 		log.debugf(">\t%s\nNOTE: %s",
 			span_to_string(diagnostic.span),

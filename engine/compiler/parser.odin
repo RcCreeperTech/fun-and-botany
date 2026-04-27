@@ -3,29 +3,24 @@ package compiler
 import "core:mem"
 import "core:fmt"
 
-Diagnostic :: struct {
-	span: SrcSpan,
-	message: string,
-}
 
 Parser :: struct {
 	tokens: []Token,
 	head: []Token,
-	diagnostics: [dynamic]Diagnostic,
+	diagnostics: ^[dynamic]Diagnostic,
 	arena: Dynamic_Arena, // Parsed ast nodes go in here for cache efficency
 	allocator: mem.Allocator,
 	panic_mode: bool
 }
-parser_init :: proc(self: ^Parser, tokens: []Token, allocator := context.allocator) {
+parser_init :: proc(self: ^Parser, tokens: []Token, diagnostics: ^[dynamic]Diagnostic, allocator := context.allocator) {
 	dynamic_arena_init(&self.arena)
 	self.allocator = dynamic_arena_allocator(&self.arena)
-	self.diagnostics = make([dynamic]Diagnostic, allocator)
+	self.diagnostics = diagnostics
 	self.tokens = tokens
 	self.head = tokens
 }
 parser_deinit :: proc(self: ^Parser) {
 	dynamic_arena_destroy(&self.arena)
-	delete(self.diagnostics)
 }
 
 parse_program :: proc(self: ^Parser) -> ^AST_Module {
@@ -619,8 +614,12 @@ parser_advance :: proc(self: ^Parser, node: ^AST_Node = nil) -> ^Token {
 parser_had_errors :: proc(self: ^Parser) -> bool { return len(self.diagnostics) > 0 }
 parser_error :: proc(self: ^Parser, span: SrcSpan, msg: string, args: ..any) {
 	self.panic_mode = true
-	diagnostic := Diagnostic{ span = span, message = fmt.aprintf(msg, ..args, allocator=self.allocator)}
-	append(&self.diagnostics, diagnostic)
+	diagnostic := Diagnostic{
+		subsystem = .parser,
+		span = span,
+		message = fmt.aprintf(msg, ..args, allocator=self.allocator)
+	}
+	append(self.diagnostics, diagnostic)
 }
 
 parser_expect :: proc(self: ^Parser, token_kind: Token_Kind, building: ^AST_Node = nil) -> (^Token, bool) #optional_ok {

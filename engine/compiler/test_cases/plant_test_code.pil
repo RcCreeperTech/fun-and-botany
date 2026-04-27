@@ -1,7 +1,5 @@
 def END_GROWTH_RATE = 0.05
 def PI = 3.14159
-def TAU = 2 * PI
-def TURN_ANGLE = TAU / 9
 
 // Some cool colors
 def BROWN = #D27F2DFF
@@ -9,9 +7,6 @@ def PINK  = #FF_00_FF_FF
 
 @(entrypoint, state)
 def main(cell):
-    // Pointless math for demo only
-    FOO = ( PI + 6.7 ) / 45
-
     if cell.growth_rate <= END_GROWTH_RATE:
         return
     end
@@ -26,12 +21,15 @@ end
 
 @state
 def node(cell):
+    TAU = 2 * PI
+    turn_angle = TAU / 9
+
     if $Rand > 0.88:
-        $Spawn(TURN_ANGLE, :main)
+        $Spawn(turn_angle, :main)
     end
 
     if $Rand > 0.77:
-        $Spawn(-TURN_ANGLE, :main)
+        $Spawn(-turn_angle, :main)
     end
 
     cell.state = :stem
