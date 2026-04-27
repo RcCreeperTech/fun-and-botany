@@ -1,4 +1,4 @@
-package web_testing
+package vm
 
 import "core:sort"
 import "base:runtime"
@@ -8,61 +8,6 @@ import "core:strings"
 import "core:mem"
 import "core:fmt"
 import "core:reflect"
-import "core:strconv"
-
-Token :: struct {
-	line, col: u32,
-	raw:       string,
-	kind:      Token_Kind,
-}
-
-Token_Keyword :: enum {
-	Const,
-	Push,
-	Pop,
-	Mul,
-	Div,
-	Add,
-	Sub,
-	Rand,
-	Jump,
-	Spawn,
-	End,
-	Get,
-	Set,
-	Ret,
-	Call,
-}
-Token_Identifier :: struct {}
-Token_Parameter :: struct {}
-Token_Equals :: struct {}
-Token_Minus :: struct {}
-Token_Colon :: struct {}
-Token_Period :: struct {}
-Token_Slash :: struct {}
-Token_Comma :: struct {}
-Token_End_Of_Statement :: struct {}
-Token_Label :: struct {}
-Token_NumberLit :: f32
-Token_HexLit :: u32
-Token_BoolLit :: bool
-
-Token_Kind :: union {
-	Token_Identifier,
-	Token_Parameter,
-	Token_Equals,
-	Token_Period,
-	Token_Minus,
-	Token_Colon,
-	Token_Slash,
-	Token_Comma,
-	Token_Label,
-	Token_NumberLit,
-	Token_HexLit,
-	Token_BoolLit,
-	Token_Keyword,
-	Token_End_Of_Statement,
-}
 
 AssemblerError :: union #shared_nil {
 	ProgramError,
@@ -85,8 +30,8 @@ ParserError :: enum {
 	Duplicate_Identifier,
 }
 
-Constant :: VM_Value
-BlockBuilder :: [dynamic]VM_Instruction
+Constant :: Value
+BlockBuilder :: [dynamic]Instruction
 RelocationKind :: enum { Label, Constant }
 Relocation :: struct {
 	kind: RelocationKind,
@@ -99,20 +44,20 @@ Assembler :: struct {
 	using scanner: Scanner,
 	arena: mem.Dynamic_Arena,
 	allocator: mem.Allocator,
-	blocks: map[string]VM_Block,
+	blocks: map[string]Block,
 	path_builder: strings.Builder,
 	current_scope: [dynamic]string,
 	constants: map[string]Constant,
 	relocations: [dynamic]Relocation,
-	block_name_table: map[string]VM_Label
+	block_name_table: map[string]Label
 }
 asm_init :: proc(self: ^Assembler, allocator := context.allocator) {
 	mem.dynamic_arena_init(&self.arena, allocator, allocator, alignment=runtime.MAP_CACHE_LINE_SIZE)
 	self.allocator = mem.dynamic_arena_allocator(&self.arena)
-	self.blocks = make(map[string]VM_Block, self.allocator)
+	self.blocks = make(map[string]Block, self.allocator)
 	self.constants = make(map[string]Constant,  self.allocator)
 	self.relocations = make([dynamic]Relocation,  self.allocator)
-	self.block_name_table = make(map[string]VM_Label, self.allocator)
+	self.block_name_table = make(map[string]Label, self.allocator)
 	self.current_scope = make([dynamic]string, self.allocator)
 	self.path_builder = strings.builder_make(self.allocator)
 	return
@@ -135,14 +80,14 @@ asm_register_constant :: proc(self: ^Assembler, prefix: []string, label: string,
 	self.constants[qualified_name] = value
 	return nil
 }
-asm_register_block :: proc(self: ^Assembler, path: []string, block: VM_Block) -> ParserError {
+asm_register_block :: proc(self: ^Assembler, path: []string, block: Block) -> ParserError {
 	qualified_name := asm_get_path(self, path[:], "", ":")
 	if qualified_name in self.blocks do return .Duplicate_Identifier
 	log.infof("Registered block: %v[%v]", qualified_name, len(block))
 	self.blocks[qualified_name] = block
 	return nil
 }
-asm_resolve_entity_ref :: proc(self: ^Assembler, ref: Relocation) -> (constant: VM_Value, found: bool) {
+asm_resolve_entity_ref :: proc(self: ^Assembler, ref: Relocation) -> (constant: Value, found: bool) {
 	seperator := "." if ref.kind == .Constant else ":"
 	path := asm_get_path_tmp(self, ref.path, "", seperator)
 	log.infof("Resolving %v_ref %v::<%v>`", ref.kind, path, ref.name)
@@ -188,13 +133,13 @@ asm_assemble :: proc(
 	self: ^Assembler,
 	source: string,
 ) -> (
-	program: VM_Program,
+	program: Program,
 	err: AssemblerError,
 ) {
 	self.scanner.head = source
 
-	lookup_parameter_by_name :: proc(name: string) -> (param: VM_Param, err: ProgramError) {
-		val, ok := reflect.enum_from_name(VM_Param, name[1:]);
+	lookup_parameter_by_name :: proc(name: string) -> (param: Param, err: ProgramError) {
+		val, ok := reflect.enum_from_name(Param, name[1:]);
 		if !ok do return {}, .Unknown_Parameter
 		return val, nil
 	}
@@ -225,11 +170,11 @@ asm_assemble :: proc(
 	inject_at(&valid_blocks, 0, "Main")
 
 	block_id: int = 0
-	program.blocks = make([]VM_Block, len(valid_blocks), self.allocator)
+	program.blocks = make([]Block, len(valid_blocks), self.allocator)
 	log.infof("Linearizing %v Blocks...", len(valid_blocks))
 	for name in valid_blocks {
 		log.infof("Block `%v` resolved to %v", name, block_id)
-		self.block_name_table[name] = VM_Label(block_id)
+		self.block_name_table[name] = Label(block_id)
 
 		program.blocks[block_id] = self.blocks[name]
 		block_id += 1
@@ -310,7 +255,7 @@ asm_assemble :: proc(
 			asm_push_scope(self, label)
 			defer asm_pop_scope(self)
 
-			block := make([dynamic]VM_Instruction, self.allocator)
+			block := make([dynamic]Instruction, self.allocator)
 
 			_ = expect(self, Token_Colon) or_return
 			_ = expect(self, Token_End_Of_Statement) or_return
@@ -347,7 +292,7 @@ asm_assemble :: proc(
 			keyword: Token_Keyword,
 			offset: int,
 		) -> (
-			inst: VM_Instruction,
+			inst: Instruction,
 			err: AssemblerError,
 		) {
 			switch keyword {
@@ -398,7 +343,7 @@ asm_assemble :: proc(
 
 				_ = expect(self, Token_End_Of_Statement) or_return
 
-				parse_inst_literal :: proc(self: ^Assembler, inst: ^VM_Instruction, offset: int, pred: bool) -> (err: AssemblerError) {
+				parse_inst_literal :: proc(self: ^Assembler, inst: ^Instruction, offset: int, pred: bool) -> (err: AssemblerError) {
 					switch lit in parse_literal(self) or_return {
 					case Parsed_ConstantRef:
 						append(&self.relocations, Relocation{
@@ -416,7 +361,7 @@ asm_assemble :: proc(
 							pred = pred,
 							name = string(lit[1:]),
 						})
-					case VM_Value:
+					case Value:
 						inst.imm[1 if pred else 0] = lit
 					}
 					return
@@ -534,7 +479,7 @@ asm_assemble :: proc(
 			}
 			return
 		}
-		parse_basic_instruction :: proc(s: ^Scanner, inst: ^VM_Instruction) -> AssemblerError {
+		parse_basic_instruction :: proc(s: ^Scanner, inst: ^Instruction) -> AssemblerError {
 			tok := scanner_next(s) or_return
 			#partial switch k in tok.kind {
 			case Token_Slash:
@@ -547,7 +492,7 @@ asm_assemble :: proc(
 
 			return nil
 		}
-		parse_precondition :: proc(s: ^Scanner) -> (cond: VM_Precondition, err: AssemblerError) {
+		parse_precondition :: proc(s: ^Scanner) -> (cond: Precondition, err: AssemblerError) {
 			predicate := expect(s, Token_Identifier) or_return
 			switch predicate.raw {
 			case "eq":
@@ -570,7 +515,7 @@ asm_assemble :: proc(
 		Parsed_ConstantRef :: distinct string
 		Parsed_LabelRef :: distinct string
 		Parsed_Literal :: union {
-			VM_Value,
+			Value,
 			Parsed_ConstantRef,
 			Parsed_LabelRef,
 		}
@@ -582,11 +527,11 @@ asm_assemble :: proc(
 
 			#partial switch k in tok.kind {
 			case Token_NumberLit:
-				result = VM_Value(k)
+				result = Value(k)
 			case Token_BoolLit:
-				result = VM_Value(k)
+				result = Value(k)
 			case Token_HexLit:
-				result = VM_Value(rgba_u32_to_color(k))
+				result = Value(rgba_u32_to_color(k))
 			case Token_Identifier:
 				lit := parse_constant_literal(self, tok.raw) or_return
 				result = Parsed_ConstantRef(lit)
@@ -615,294 +560,10 @@ asm_assemble :: proc(
 
 }
 
-ScannerState :: enum {
-	EatWhitespace,
-	Main,
-	Identifier,
-	Parameter,
-	Comment,
-	Colon,
-	Minus,
-	Digits,
-	Period,
-	FloatLit,
-	HexLit,
-	Label,
-}
-Scanner :: struct {
-	state:     ScannerState,
-	line, col: u32,
-	head:      string,
-	prev:      Token_Kind,
-}
-ScannerError :: enum {
-	None = 0,
-	Unexpected_End_Of_File,
-}
-scanner_peek :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
-	tmp := s^
-	defer s^ = tmp
-	return scanner_next(s)
-}
-scanner_next :: proc(s: ^Scanner) -> (next: Token, err: ScannerError) {
-	for {
-		switch s.state {
-		case .EatWhitespace:
-			c := peek(s) or_return
-			switch c {
-			case ' ', '\t', '\r', '\v', '\f':
-				advance(s)
-			case '\n':
-				next = begin_token(s)
-				advance(s)
-				out := end_token(s, next, Token_End_Of_Statement{})
-				s.line += 1
-				s.col = 0
-				if s.prev != nil {
-					s.prev = nil
-					return out, .None
-				}
-			case:
-				s.state = .Main
-			}
-		case .Main:
-			c := peek(s) or_return
-			switch c {
-			case '=':
-				next = begin_token(s)
-				advance(s)
-				return end_token(s, next, Token_Equals{}), .None
-			case ';':
-				s.state = .Comment
-			case '_', 'a' ..= 'z', 'A' ..= 'Z':
-				next = begin_token(s)
-				s.state = .Identifier
-			case '/':
-				next = begin_token(s)
-				advance(s)
-				return end_token(s, next, Token_Slash{}), .None
-			case ',':
-				next = begin_token(s)
-				advance(s)
-				return end_token(s, next, Token_Comma{}), .None
-			case ':':
-				next = begin_token(s)
-				advance(s)
-				s.state = .Colon
-			case '-':
-				next = begin_token(s)
-				advance(s)
-				s.state = .Minus
-			case '#':
-				next = begin_token(s)
-				advance(s)
-				s.state = .HexLit
-			case '$':
-				next = begin_token(s)
-				advance(s)
-				s.state = .Parameter
-			case '.':
-				next = begin_token(s)
-				advance(s)
-				s.state = .Period
-			case '0' ..= '9':
-				next = begin_token(s)
-				advance(s)
-				s.state = .Digits
-			case:
-				fmt.panicf("Unimplemented: Head is at: [%v]\"%c\".", s.head[0], s.head[0])
-			}
-		case .Parameter:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_Parameter{}), .None
-			} else {
-				switch c {
-				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
-					advance(s)
-				case:
-					return end_token(s, next, Token_Parameter{}), .None
-				}
-			}
-		case .Identifier:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_Identifier{}), .None
-			} else {
-				switch c {
-				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
-					advance(s)
-				case:
-					return end_token(s, next, Token_Identifier{}), .None
-				}
-			}
-		case .Comment:
-			if c, err := peek(s); err != .None {
-				return {}, .Unexpected_End_Of_File
-			} else {
-				switch c {
-				case '\n':
-					s.state = .EatWhitespace
-				case:
-					advance(s)
-				}
-			}
-		case .Minus:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_Minus{}), .None
-			} else {
-				switch c {
-				case '0' ..= '9', '.':
-					s.state = .Digits
-				case:
-					return end_token(s, next, Token_Minus{}), .None
-				}
-			}
-		case .Digits:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_NumberLit{}), .None
-			} else {
-				switch c {
-				case '.':
-					advance(s)
-					s.state = .FloatLit
-				case '0' ..= '9', '_':
-					advance(s)
-				case:
-					return end_token(s, next, Token_NumberLit{}), .None
-				}
-			}
-		case .Colon:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_Colon{}), .None
-			} else {
-				switch c {
-				case 'a' ..= 'z', 'A' ..= 'Z':
-					s.state = .Label
-				case:
-					return end_token(s, next, Token_Colon{}), .None
-				}
-			}
-		case .Label:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_Label{}), .None
-			} else {
-				switch c {
-				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', ':':
-					advance(s)
-				case:
-					return end_token(s, next, Token_Label{}), .None
-				}
-			}
-		case .Period:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_Period{}), .None
-			} else {
-				switch c {
-				case '0' ..= '9':
-					s.state = .FloatLit
-				case:
-					return end_token(s, next, Token_Period{}), .None
-				}
-			}
-		case .FloatLit:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_NumberLit{}), .None
-			} else {
-				switch c {
-				case '0' ..= '9', '_':
-					advance(s)
-				case:
-					return end_token(s, next, Token_NumberLit{}), .None
-				}
-			}
-		case .HexLit:
-			if c, err := peek(s); err != .None {
-				return end_token(s, next, Token_HexLit{}), .None
-			} else {
-				switch c {
-				case '0' ..= '9', 'a' ..= 'f', 'A' ..= 'F', '_':
-					advance(s)
-				case:
-					return end_token(s, next, Token_HexLit{}), .None
-				}
-			}
-		}
-
-	}
-
-	begin_token :: proc(s: ^Scanner) -> Token {
-		return {line = s.line, col = s.col, raw = s.head}
-	}
-	end_token :: proc(s: ^Scanner, t: Token, kind: Token_Kind) -> (out: Token) {
-		if _, ok := kind.(Token_End_Of_Statement); !ok {
-			s.prev = kind
-		}
-
-		out.kind = kind
-
-		token_len := len(t.raw) - len(s.head)
-		out.raw = t.raw[:token_len]
-
-		#partial switch k in kind {
-		case Token_Identifier:
-			switch out.raw {
-			case "true":
-				out.kind = true
-			case "false":
-				out.kind = false
-			case "const":
-				out.kind = Token_Keyword.Const
-			case "push":
-				out.kind = Token_Keyword.Push
-			case "pop":
-				out.kind = Token_Keyword.Pop
-			case "mul":
-				out.kind = Token_Keyword.Mul
-			case "div":
-				out.kind = Token_Keyword.Div
-			case "add":
-				out.kind = Token_Keyword.Add
-			case "sub":
-				out.kind = Token_Keyword.Sub
-			case "rand":
-				out.kind = Token_Keyword.Rand
-			case "jump":
-				out.kind = Token_Keyword.Jump
-			case "spawn":
-				out.kind = Token_Keyword.Spawn
-			case "end":
-				out.kind = Token_Keyword.End
-			case "get":
-				out.kind = Token_Keyword.Get
-			case "set":
-				out.kind = Token_Keyword.Set
-			case "ret":
-				out.kind = Token_Keyword.Ret
-			case "call":
-				out.kind = Token_Keyword.Call
-			}
-		case Token_HexLit:
-			v, ok := strconv.parse_u64(out.raw[1:], 16)
-			assert(ok)
-			out.kind = u32(v)
-		case Token_NumberLit:
-			v, _, ok := strconv.parse_f32_prefix(out.raw)
-			assert(ok)
-			out.kind = v
-		}
-
-		s.state = .EatWhitespace
-		return
-	}
-	peek :: proc(s: ^Scanner) -> (c: u8, err: ScannerError) {
-		if len(s.head) != 0 {
-			return s.head[0], .None
-		} else {
-			return {}, .Unexpected_End_Of_File
-		}
-	}
-	// unsafe
-	advance :: proc(s: ^Scanner) {
-		s.head = s.head[1:]
-		s.col += 1
-	}
+rgba_u32_to_color :: proc(c: u32) -> Color {
+	r := u8(c >> 24)
+	g := u8(c >> 16)
+	b := u8(c >> 8)
+	a := u8(c >> 0)
+	return {r, g, b, a}
 }

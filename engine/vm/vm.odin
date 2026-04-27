@@ -1,17 +1,53 @@
 #+feature using-stmt
-package web_testing
+package vm
 
 import sm "core:container/small_array"
 import "core:log"
 import "core:math/rand"
 
 VM :: struct {
-	stack:        sm.Small_Array(64, VM_Value),
-	call_stack:   sm.Small_Array(16, VM_BlockPointer),
-	active_block: VM_BlockPointer,
+	stack:        sm.Small_Array(64, Value),
+	call_stack:   sm.Small_Array(16, BlockPointer),
+	active_block: BlockPointer,
+	usr:          UsrVtable,
 }
 
-vm_push_value :: #force_inline proc "contextless" (vm: ^VM, v: VM_Value) -> VM_Error {
+UsrVtable :: struct {
+	get_param: GetParam,
+	set_param: SetParam,
+	get_entrypoint: GetEntrypoint,
+	spawn_element: SpawnElement,
+}
+
+GetParam :: #type proc(user_context: any, param: Param) -> (Value, Error)
+SetParam :: #type proc(user_context: any, param: Param, value: Value) -> Error
+GetEntrypoint :: #type proc(user_context: any) -> Label
+SpawnElement :: #type proc(user_context: any, theta: f32, mass: f32, entrypoint: Label)
+
+default_vtable := UsrVtable {
+	get_param = proc(user_context: any, param: Param) -> (Value, Error) {
+		log.debugf("Tried to get_param(%w)", param)
+		return nil, .None
+	},
+	set_param = proc(user_context: any, param: Param, value: Value) -> Error {
+		log.debugf("Tried to call set_param(%w, %w)", param, value)
+		return .None
+	},
+	get_entrypoint = proc(user_context: any) -> Label {
+		log.debugf("Tried to call get_entrypoint()")
+		return 0
+	},
+	spawn_element = proc(user_context: any, theta: f32, mass: f32, entrypoint: Label) {
+		log.debugf("Tried to call spawn_element(%w, %w, %w)", theta, mass, entrypoint)
+	}
+}
+
+
+init_vm :: proc(self: ^VM, vtable: UsrVtable = default_vtable) {
+	self.usr = vtable
+}
+
+push_value :: #force_inline proc "contextless" (vm: ^VM, v: Value) -> Error {
 	if sm.push_back(&vm.stack, v) {
 		return .None
 	} else {
@@ -19,7 +55,7 @@ vm_push_value :: #force_inline proc "contextless" (vm: ^VM, v: VM_Value) -> VM_E
 	}
 }
 
-vm_ensure_arg_count :: #force_inline proc "contextless" (vm: ^VM, arity: int) -> VM_Error {
+ensure_arg_count :: #force_inline proc "contextless" (vm: ^VM, arity: int) -> Error {
 	if sm.len(vm.stack) < arity {
 		return .Instruction_Arity_Mismatch
 	} else {
@@ -29,13 +65,13 @@ vm_ensure_arg_count :: #force_inline proc "contextless" (vm: ^VM, arity: int) ->
 
 // This operation is unsafe. The caller is expected to check the number of args
 // on the stack before calling.
-vm_take_arg :: #force_inline proc "contextless" (vm: ^VM) -> VM_Value {
+take_arg :: #force_inline proc "contextless" (vm: ^VM) -> Value {
 	item := vm.stack.data[vm.stack.len - 1]
 	vm.stack.len -= 1
 	return item
 }
 
-vm_is_falsy :: proc "contextless" (v: VM_Value) -> (bool, VM_Error) {
+is_falsy :: proc "contextless" (v: Value) -> (bool, Error) {
 	#partial switch value in v {
 	case f32:
 		return value == 0, .None
@@ -45,7 +81,7 @@ vm_is_falsy :: proc "contextless" (v: VM_Value) -> (bool, VM_Error) {
 	return false, .Comparison_Faliure
 }
 
-VM_Precondition :: enum u8 {
+Precondition :: enum u8 {
 	None = 0,
 	Eq,
 	Neq,
@@ -54,7 +90,7 @@ VM_Precondition :: enum u8 {
 	Gt,
 	Geq,
 }
-VM_Op :: enum u8 {
+Op :: enum u8 {
 	Rand,
 	Push,
 	Pop,
@@ -71,16 +107,16 @@ VM_Op :: enum u8 {
 	Spawn,
 }
 
-VM_Block :: []VM_Instruction
-VM_Program :: struct {
-	blocks: []VM_Block,
+Block :: []Instruction
+Program :: struct {
+	blocks: []Block,
 }
-VM_BlockPointer :: struct {
-	idx:  VM_Label,
-	head: VM_Block,
+BlockPointer :: struct {
+	idx:  Label,
+	head: Block,
 }
 
-VM_Error :: enum {
+Error :: enum {
 	None = 0,
 	Stack_Overflow,
 	Stack_Underflow,
@@ -92,23 +128,24 @@ VM_Error :: enum {
 	Readonly_Parameter,
 }
 
-VM_Instruction :: struct {
-	precondition: VM_Precondition,
-	op:           VM_Op,
-	imm:          [2]VM_Value, // PERF: Encode this better right now each value will have a tag
+Instruction :: struct {
+	precondition: Precondition,
+	op:           Op,
+	imm:          [2]Value, // PERF: Encode this better right now each value will have a tag
 }
-VM_Value :: union {
+Value :: union {
 	f32,
 	bool,
 	Color,
-	VM_Label,
-	VM_Param,
+	Label,
+	Param,
 }
 
-VM_Label :: distinct u8
+Color :: [4]u8
+Label :: distinct u8
 
 // TODO: Parent variants for relevent parameters
-VM_Param :: enum u8 {
+Param :: enum u8 {
 	State,
 	Thickness,
 	Length,
@@ -117,84 +154,19 @@ VM_Param :: enum u8 {
 	Stiffness,
 	Density,
 }
-vm_get_param :: proc(
-	vm: ^VM,
-	element: ^Sim_Element,
-	param: VM_Param,
-) -> (
-	v: VM_Value,
-	err: VM_Error,
-) {
-	switch param {
-	case .State:
-		return element.vm_entrypoint, .None
-	case .Thickness:
-		return element.thickness, .None
-	case .Length:
-		return element.length, .None
-	case .Color:
-		return element.color, .None
-	case .Growth_Rate:
-		return element.growth_rate, .None
-	case .Stiffness:
-		return element.stiffness, .None
-	case .Density:
-		return element.density, .None
-	}
-	return nil, .Unknown_Parameter_Access
-}
 
-vm_set_param :: proc(
-	vm: ^VM,
-	element: ^Sim_Element,
-	param: VM_Param,
-	value: VM_Value,
-) -> (
-	err: VM_Error,
-) {
-	switch param {
-	case .State:
-		v, ok := value.(VM_Label)
-		if !ok do return .Parameter_Type_Mistmatch
-		element.vm_entrypoint = v
-	case .Thickness:
-		v, ok := value.(f32)
-		if !ok do return .Parameter_Type_Mistmatch
-        element.target_thickness = v
-	case .Length:
-		v, ok := value.(f32)
-		if !ok do return .Parameter_Type_Mistmatch
-        element.target_length = v
-	case .Color:
-		v, ok := value.(Color)
-		if !ok do return .Parameter_Type_Mistmatch
-        element.target_color = v
-	case .Growth_Rate:
-		return .Readonly_Parameter
-	case .Stiffness:
-		v, ok := value.(f32)
-		if !ok do return .Parameter_Type_Mistmatch
-        element.target_stiffness = v
-	case .Density:
-		v, ok := value.(f32)
-		if !ok do return .Parameter_Type_Mistmatch
-        element.target_density = v
-	}
-	return .None
-}
-
-
-vm_run :: proc(vm: ^VM, program: VM_Program, element: ^Sim_Element = nil) -> (err: VM_Error) {
+run :: proc(vm: ^VM, program: Program, user_context: any = nil) -> (err: Error) {
 	sm.clear(&vm.stack)
 	sm.clear(&vm.call_stack)
-	entrypoint := 0 if element == nil else element.vm_entrypoint
+	use_usr_entrypoint := user_context != nil && vm.usr.get_entrypoint != nil
+	entrypoint := vm.usr.get_entrypoint(user_context) if use_usr_entrypoint else 0
 	vm.active_block = {
 		idx  = entrypoint,
 		head = program.blocks[entrypoint],
 	}
 	for {
-		if inst, ok := vm_fetch(vm); ok {
-			early_return := vm_exec(vm, inst, program, element) or_return
+		if inst, ok := fetch(vm); ok {
+			early_return := exec(vm, inst, program, user_context) or_return
 			if early_return do return .None
 		} else {
 			vm.active_block = sm.pop_back_safe(&vm.call_stack) or_break
@@ -203,7 +175,7 @@ vm_run :: proc(vm: ^VM, program: VM_Program, element: ^Sim_Element = nil) -> (er
 	return .None
 }
 
-vm_fetch :: proc(vm: ^VM) -> (VM_Instruction, bool) {
+fetch :: proc(vm: ^VM) -> (Instruction, bool) {
 	if len(vm.active_block.head) == 0 {
 		return {}, false
 	} else {
@@ -211,14 +183,14 @@ vm_fetch :: proc(vm: ^VM) -> (VM_Instruction, bool) {
 	}
 }
 
-vm_exec :: proc(
+exec :: proc(
 	vm: ^VM,
-	inst: VM_Instruction,
-	program: VM_Program,
-	element: ^Sim_Element = nil,
+	inst: Instruction,
+	program: Program,
+	user_context: any = nil,
 ) -> (
 	early_return: bool,
-	err: VM_Error,
+	err: Error,
 ) {
 	advance_pc: bool = true
 	defer if advance_pc do vm.active_block.head = vm.active_block.head[1:]
@@ -229,11 +201,11 @@ vm_exec :: proc(
 
 	precond_success: bool = true
 	if inst.precondition != .None {
-		vm_ensure_arg_count(vm, 2) or_return
-		a := vm_take_arg(vm) // [HEAD]
-		b := vm_take_arg(vm) // [HEAD - 1]
+		ensure_arg_count(vm, 2) or_return
+		a := take_arg(vm) // [HEAD]
+		b := take_arg(vm) // [HEAD - 1]
 
-		precond_success, err = vm_evaluate_precondition(inst.precondition, a, b)
+		precond_success, err = evaluate_precondition(inst.precondition, a, b)
 		log.debugf("Precond Comparison: %v %v %v => %v", a, inst.precondition, b, precond_success)
 		if err != .None {
 			#partial switch err {
@@ -255,60 +227,68 @@ vm_exec :: proc(
 
 	switch inst.op {
 	case .Spawn:
-		if element != nil {
-			vm_ensure_arg_count(vm, 2) or_return
+		if user_context != nil {
+			ensure_arg_count(vm, 2) or_return
 
-			arg0 := vm_take_arg(vm)
-			label, ok := arg0.(VM_Label)
+			arg0 := take_arg(vm)
+			label, ok := arg0.(Label)
 			if !ok do return false, .Argument_Mismatch
 
-			arg1 := vm_take_arg(vm)
+			arg1 := take_arg(vm)
 			angle, ok2 := arg1.(f32)
 			if !ok2 do return false, .Argument_Mismatch
 
-			sim_element_spawn(&g_app_state, element, theta = angle, vm_entrypoint = label)
+			if vm.usr.spawn_element != nil do vm.usr.spawn_element(user_context, angle, 1, label)
 		}
 	case .GetParam:
-		if element != nil {
-			param, ok := inst.imm[0].(VM_Param)
+		if user_context != nil {
+			param, ok := inst.imm[0].(Param)
 			if !ok do return false, .Argument_Mismatch
 
-			val := vm_get_param(vm, element, param) or_return
-			vm_push_value(vm, val) or_return
+			if vm.usr.get_param != nil {
+				val := vm.usr.get_param(user_context, param) or_return
+				push_value(vm, val) or_return
+			} else {
+				// TODO: What to emit here?
+			}
 		}
 	case .SetParam:
-		if element != nil {
-			vm_ensure_arg_count(vm, 1) or_return
+		if user_context != nil {
+			ensure_arg_count(vm, 1) or_return
 
-			value := vm_take_arg(vm)
-			param, ok := inst.imm[0].(VM_Param)
+			value := take_arg(vm)
+			param, ok := inst.imm[0].(Param)
 			if !ok do return false, .Argument_Mismatch
 
-			vm_set_param(vm, element, param, value) or_return
+			if vm.usr.set_param != nil {
+				vm.usr.set_param(user_context, param, value) or_return
+			} else {
+				// TODO: What to do here?
+			}
 		}
 	case .Rand:
-		vm_push_value(vm, rand.float32()) or_return
+		push_value(vm, rand.float32()) or_return
 	case .Push:
 		imm := inst.imm[0 if precond_success else 1]
-		vm_push_value(vm, imm) or_return
+		push_value(vm, imm) or_return
 	case .Pop:
 		if _, ok := sm.pop_back_safe(&vm.stack); !ok {
 			return false, .Stack_Underflow
 		}
 	case .Add:
-		vm_add(vm) or_return
+		add(vm) or_return
 	case .Subtract:
-		vm_subtract(vm) or_return
+		subtract(vm) or_return
 	case .Multiply:
-		vm_multiply(vm) or_return
+		multiply(vm) or_return
 	case .Divide:
-		vm_divide(vm) or_return
+		divide(vm) or_return
 	case .Negate:
-		vm_negate(vm) or_return
+		negate(vm) or_return
 	case .Jump:
 		advance_pc = false
 		imm := inst.imm[0 if precond_success else 1]
-		if label, ok := imm.(VM_Label); ok {
+		if label, ok := imm.(Label); ok {
 			vm.active_block = {
 				idx  = label,
 				head = program.blocks[label],
@@ -321,8 +301,8 @@ vm_exec :: proc(
 	case .Call:
 		advance_pc = false
 		imm := inst.imm[0 if precond_success else 1]
-		if label, ok := imm.(VM_Label); ok {
-			return_point :=  VM_BlockPointer {
+		if label, ok := imm.(Label); ok {
+			return_point :=  BlockPointer {
 				idx = vm.active_block.idx,
 				head = vm.active_block.head[1:] // Execution should countinue after the call
 			}
@@ -346,7 +326,7 @@ vm_exec :: proc(
 
 }
 
-vm_evaluate_precondition :: proc(cond: VM_Precondition, a, b: VM_Value) -> (bool, VM_Error) {
+evaluate_precondition :: proc(cond: Precondition, a, b: Value) -> (bool, Error) {
 	#partial switch cond {
 	case .Eq:
 		switch t1 in a {
@@ -368,13 +348,13 @@ vm_evaluate_precondition :: proc(cond: VM_Precondition, a, b: VM_Value) -> (bool
 			} else {
 				return false, .Argument_Mismatch
 			}
-		case VM_Label:
-			if t2, ok := b.(VM_Label); ok {
+		case Label:
+			if t2, ok := b.(Label); ok {
 				return (t1 == t2), .None
 			} else {
 				return false, .Argument_Mismatch
 			}
-		case VM_Param:
+		case Param:
 			// Type is not comparable
 			return false, .Comparison_Faliure
 		}
@@ -398,13 +378,13 @@ vm_evaluate_precondition :: proc(cond: VM_Precondition, a, b: VM_Value) -> (bool
 			} else {
 				return false, .Argument_Mismatch
 			}
-		case VM_Label:
-			if t2, ok := b.(VM_Label); ok {
+		case Label:
+			if t2, ok := b.(Label); ok {
 				return (t1 != t2), .None
 			} else {
 				return false, .Argument_Mismatch
 			}
-		case VM_Param:
+		case Param:
 			// Type is not comparable
 			return false, .Comparison_Faliure
 		}
@@ -456,117 +436,117 @@ vm_evaluate_precondition :: proc(cond: VM_Precondition, a, b: VM_Value) -> (bool
 	unreachable()
 }
 
-vm_add :: proc(vm: ^VM) -> VM_Error {
-	vm_ensure_arg_count(vm, 2) or_return
-	a := vm_take_arg(vm)
-	b := vm_take_arg(vm)
+add :: proc(vm: ^VM) -> Error {
+	ensure_arg_count(vm, 2) or_return
+	a := take_arg(vm)
+	b := take_arg(vm)
 
 	switch va in a {
 	case f32:
 		if vb, ok := b.(f32); ok {
-			vm_push_value(vm, va + vb) or_return
+			push_value(vm, va + vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
 	case Color:
 		if vb, ok := b.(Color); ok {
-			vm_push_value(vm, va + vb) or_return
+			push_value(vm, va + vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label, VM_Param:
+	case bool, Label, Param:
 		return .Argument_Mismatch
 	}
 
 	return .None
 }
 
-vm_subtract :: proc(vm: ^VM) -> VM_Error {
-	vm_ensure_arg_count(vm, 2) or_return
-	a := vm_take_arg(vm)
-	b := vm_take_arg(vm)
+subtract :: proc(vm: ^VM) -> Error {
+	ensure_arg_count(vm, 2) or_return
+	a := take_arg(vm)
+	b := take_arg(vm)
 
 	switch va in a {
 	case f32:
 		if vb, ok := b.(f32); ok {
-			vm_push_value(vm, va - vb) or_return
+			push_value(vm, va - vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
 	case Color:
 		if vb, ok := b.(Color); ok {
-			vm_push_value(vm, va - vb) or_return
+			push_value(vm, va - vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label, VM_Param:
+	case bool, Label, Param:
 		return .Argument_Mismatch
 	}
 
 	return .None
 }
 
-vm_multiply :: proc(vm: ^VM) -> VM_Error {
-	vm_ensure_arg_count(vm, 2) or_return
-	a := vm_take_arg(vm)
-	b := vm_take_arg(vm)
+multiply :: proc(vm: ^VM) -> Error {
+	ensure_arg_count(vm, 2) or_return
+	a := take_arg(vm)
+	b := take_arg(vm)
 
 	switch va in a {
 	case f32:
 		if vb, ok := b.(f32); ok {
-			vm_push_value(vm, va * vb) or_return
+			push_value(vm, va * vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
 	case Color:
 		if vb, ok := b.(Color); ok {
-			vm_push_value(vm, va * vb) or_return
+			push_value(vm, va * vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label, VM_Param:
+	case bool, Label, Param:
 		return .Argument_Mismatch
 	}
 
 	return .None
 }
 
-vm_divide :: proc(vm: ^VM) -> VM_Error {
-	vm_ensure_arg_count(vm, 2) or_return
-	a := vm_take_arg(vm)
-	b := vm_take_arg(vm)
+divide :: proc(vm: ^VM) -> Error {
+	ensure_arg_count(vm, 2) or_return
+	a := take_arg(vm)
+	b := take_arg(vm)
 
 	switch va in a {
 	case f32:
 		if vb, ok := b.(f32); ok {
-			vm_push_value(vm, va / vb) or_return
+			push_value(vm, va / vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
 	case Color:
 		if vb, ok := b.(Color); ok {
-			vm_push_value(vm, va / vb) or_return
+			push_value(vm, va / vb) or_return
 		} else {
 			return .Argument_Mismatch
 		}
-	case bool, VM_Label, VM_Param:
+	case bool, Label, Param:
 		return .Argument_Mismatch
 	}
 
 	return .None
 }
 
-vm_negate :: proc(vm: ^VM) -> VM_Error {
-	vm_ensure_arg_count(vm, 1) or_return
+negate :: proc(vm: ^VM) -> Error {
+	ensure_arg_count(vm, 1) or_return
 
-	switch v in vm_take_arg(vm) {
+	switch v in take_arg(vm) {
 	case f32:
-		vm_push_value(vm, -v) or_return
+		push_value(vm, -v) or_return
 	case bool:
-		vm_push_value(vm, !v) or_return
+		push_value(vm, !v) or_return
 	case Color:
 		unimplemented("TODO: Invert color")
-	case VM_Label, VM_Param:
+	case Label, Param:
 		return .Argument_Mismatch
 	}
 

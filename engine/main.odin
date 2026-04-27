@@ -3,7 +3,6 @@ package web_testing
 
 import "core:log"
 import wgl "WebGL"
-import "base:intrinsics"
 import "base:runtime"
 import hm "core:container/handle_map"
 import "core:fmt"
@@ -11,6 +10,8 @@ import "core:math"
 import la "core:math/linalg"
 import rg "renderer"
 import b2 "vendor:box2d"
+
+import pvm "vm"
 
 BOX2D_DEBUG_DRAW :: false
 SIM_GROUND_THICKNESS :: 200
@@ -31,8 +32,8 @@ ApplicationState :: struct {
 	physics_world_debug_draw: b2.DebugDraw,
 	ctx:                      runtime.Context,
 	ground:                   b2.BodyId,
-	vm: 					  VM,
-	loaded_program: 		  VM_Program,
+	vm: 					  pvm.VM,
+	loaded_program: 		  pvm.Program,
 }
 
 // TODO: @(private="file")
@@ -137,6 +138,13 @@ main :: proc() {
 	assert(err == nil)
 	app.loaded_program = prog
 	context.logger.lowest_level = .Debug
+
+	pvm.init_vm(&app.vm, {
+		get_entrypoint = vm_get_entrypoint,
+		get_param = vm_get_param,
+		set_param = vm_set_param,
+		spawn_element = vm_spawn_element,
+	})
 }
 
 @(export)

@@ -1,5 +1,5 @@
 #+test
-package web_testing
+package vm
 
 import "core:fmt"
 import "core:log"
@@ -16,64 +16,64 @@ asm_test_plant_test_code :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, nil)
 
 	// Expected Program Output
-	expected := VM_Program {
+	expected := Program {
 	    blocks = {
 	        {
 	            { op = .Push,  imm = { f32(0.05), nil, } },
-	            { op = .GetParam,  imm = { VM_Param.Growth_Rate, nil, } },
+	            { op = .GetParam,  imm = { Param.Growth_Rate, nil, } },
 	            { precondition = .Gt,  op = .EarlyReturn, },
 	            { op = .Rand, },
 	            { op = .Push,  imm = { f32(0.33), nil, } },
-	            { precondition = .Gt,  op = .Jump,  imm = { VM_Label(2), VM_Label(1), } },
+	            { precondition = .Gt,  op = .Jump,  imm = { Label(2), Label(1), } },
 	        },
 	        {
 	            { op = .Push,  imm = { f32(0.94999999), nil, } },
 	            { op = .Rand, },
-	            { precondition = .Lt,  op = .Push,  imm = { VM_Label(3), VM_Label(6), } },
-	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
+	            { precondition = .Lt,  op = .Push,  imm = { Label(3), Label(6), } },
+	            { op = .SetParam,  imm = { Param.State, nil, } },
 	        },
 	        {
 	            { op = .Push,  imm = { f32(0), nil, } },
-	            { op = .Push,  imm = { VM_Label(0), nil, } },
+	            { op = .Push,  imm = { Label(0), nil, } },
 	            { op = .Spawn, },
-	            { op = .Push,  imm = { VM_Label(7), nil, } },
-	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
+	            { op = .Push,  imm = { Label(7), nil, } },
+	            { op = .SetParam,  imm = { Param.State, nil, } },
 	        },
 	        {
 	            { op = .Rand, },
 	            { op = .Push,  imm = { f32(0.88), nil, } },
-	            { precondition = .Gt,  op = .Call,  imm = { VM_Label(5), nil, } },
+	            { precondition = .Gt,  op = .Call,  imm = { Label(5), nil, } },
 	            { op = .Rand, },
 	            { op = .Push,  imm = { f32(0.76999998), nil, } },
-	            { precondition = .Gt,  op = .Call,  imm = { VM_Label(4), nil, } },
-	            { op = .Push,  imm = { VM_Label(7), nil, } },
-	            { op = .SetParam,  imm = { VM_Param.State, nil, } },
+	            { precondition = .Gt,  op = .Call,  imm = { Label(4), nil, } },
+	            { op = .Push,  imm = { Label(7), nil, } },
+	            { op = .SetParam,  imm = { Param.State, nil, } },
 	        },
 	        {
 	            { op = .Push,  imm = { f32(-0.69813), nil, } },
-	            { op = .Push,  imm = { VM_Label(0), nil, } },
+	            { op = .Push,  imm = { Label(0), nil, } },
 	            { op = .Spawn, },
 	        },
 	        {
 	            { op = .Push,  imm = { f32(0.69813), nil, } },
-	            { op = .Push,  imm = { VM_Label(0), nil, } },
+	            { op = .Push,  imm = { Label(0), nil, } },
 	            { op = .Spawn, },
 	        },
 	        {
 	            { op = .Push,  imm = { Color { 255, 0, 255, 255, }, nil, } },
-	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
+	            { op = .SetParam,  imm = { Param.Color, nil, } },
 	        },
 	        {
 	            { op = .Push,  imm = { Color { 210, 127, 45, 255, }, nil, } },
-	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
-	            { op = .GetParam,  imm = { VM_Param.Length, nil, } },
+	            { op = .SetParam,  imm = { Param.Color, nil, } },
+	            { op = .GetParam,  imm = { Param.Length, nil, } },
 	            { op = .Push,  imm = { f32(0.001), nil, } },
 	            { op = .Add, },
-	            { op = .SetParam,  imm = { VM_Param.Length, nil, } },
-	            { op = .GetParam,  imm = { VM_Param.Thickness, nil, } },
+	            { op = .SetParam,  imm = { Param.Length, nil, } },
+	            { op = .GetParam,  imm = { Param.Thickness, nil, } },
 	            { op = .Push,  imm = { f32(0.0049999999), nil, } },
 	            { op = .Add, },
-	            { op = .SetParam,  imm = { VM_Param.Thickness, nil, } },
+	            { op = .SetParam,  imm = { Param.Thickness, nil, } },
 	        },
 	    }
 	}
@@ -90,7 +90,7 @@ asm_test_constants :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, nil)
 
 	// Expected Program Output
-	expected := VM_Program {
+	expected := Program {
 	    blocks = {
 	        {
 	            { op = .Push,  imm = { f32(1337), nil, } },
@@ -126,7 +126,7 @@ asm_test_simple :: proc(t: ^testing.T) {
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
-	expected := VM_Program {
+	expected := Program {
 		blocks = {{{op = .Push, imm = {1.23, nil}}}},
 	}
 
@@ -143,13 +143,13 @@ asm_test_get_set :: proc(t: ^testing.T) {
 	testing.expect_value(t, err, nil)
 
 	// Expected Program Output
-	expected := VM_Program {
+	expected := Program {
 	    blocks = {
 	        {
-	            { op = .GetParam,  imm = { VM_Param.State, nil, } },
+	            { op = .GetParam,  imm = { Param.State, nil, } },
 	            { op = .Pop, },
 	            { op = .Push,  imm = { Color { 255, 24, 24, 24, }, nil, } },
-	            { op = .SetParam,  imm = { VM_Param.Color, nil, } },
+	            { op = .SetParam,  imm = { Param.Color, nil, } },
 	        },
 	    }
 	}
@@ -175,7 +175,7 @@ asm_test_basic_ops :: proc(t: ^testing.T) {
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
-	expected := VM_Program {
+	expected := Program {
 		blocks = {
 			{
 				{op = .Push, imm = {f32(1), nil}},
@@ -219,7 +219,7 @@ asm_test_push_then_pop :: proc(t: ^testing.T) {
 	defer asm_cleanup(&assembler)
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
-	expected := VM_Program {
+	expected := Program {
 		blocks = {
 			{
 				{op = .Push, imm = {f32(123), nil}},
@@ -242,7 +242,7 @@ asm_test_push_literals :: proc(t: ^testing.T) {
 	defer asm_cleanup(&assembler)
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
-	expected := VM_Program {
+	expected := Program {
 		blocks = {
 			{
 				{op = .Push, imm = {f32(0.1), nil}},
@@ -270,7 +270,7 @@ asm_test_push_with_precond :: proc(t: ^testing.T) {
 	defer asm_cleanup(&assembler)
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
-	expected := VM_Program {
+	expected := Program {
 		blocks = {
 			{
 				{op = .Push, imm = {f32(100), nil}},
@@ -291,28 +291,28 @@ asm_test_jump_around :: proc(t: ^testing.T) {
 	prog, err := asm_assemble(&assembler, source)
 	testing.expect_value(t, err, nil)
 
-	expected := VM_Program {
+	expected := Program {
 		blocks = {
 			{
 				{op = .Push, imm = {f32(1), nil}},
 				{op = .Push, imm = {f32(0), nil}},
-				{precondition = .Eq, op = .Jump, imm = {VM_Label(1), VM_Label(2)}},
+				{precondition = .Eq, op = .Jump, imm = {Label(1), Label(2)}},
 			},
 			{{op = .Push, imm = {f32(67), nil}}},
-			{{op = .Push, imm = {f32(123), nil}}, {op = .Jump, imm = {VM_Label(3), nil}}},
-			{{op = .Jump, imm = {VM_Label(1), nil}}},
+			{{op = .Push, imm = {f32(123), nil}}, {op = .Jump, imm = {Label(3), nil}}},
+			{{op = .Jump, imm = {Label(1), nil}}},
 		},
 	}
 	expect_program(t, prog, expected)
 }
 
 
-dump_program :: proc(p: VM_Program) {
+dump_program :: proc(p: Program) {
 	sb := strings.builder_make()
 	defer strings.builder_destroy(&sb)
 	fmt.sbprintln(&sb)
 	fmt.sbprintln(&sb, "// Expected Program Output")
-	fmt.sbprintln(&sb, "expected := VM_Program {")
+	fmt.sbprintln(&sb, "expected := Program {")
 	fmt.sbprintln(&sb, "    blocks = {")
 	for block, i in p.blocks {
 		fmt.sbprintln(&sb, "        {")
@@ -338,7 +338,7 @@ dump_program :: proc(p: VM_Program) {
 	out := strings.to_string(sb)
 	log.info(out)
 
-	print_vm_value :: proc(sb: ^strings.Builder, val: VM_Value) {
+	print_vm_value :: proc(sb: ^strings.Builder, val: Value) {
 		switch v in val {
 		case nil:
 			fmt.sbprint(sb, "nil, ")
@@ -353,15 +353,15 @@ dump_program :: proc(p: VM_Program) {
 			fmt.sbprintf(sb, "f32(%v), ", v)
 		case bool:
 			fmt.sbprintf(sb, "%v, ", v)
-		case VM_Label:
-			fmt.sbprintf(sb, "VM_Label(%v), ", v)
-		case VM_Param:
-			fmt.sbprintf(sb, "VM_Param.%v, ", v)
+		case Label:
+			fmt.sbprintf(sb, "Label(%v), ", v)
+		case Param:
+			fmt.sbprintf(sb, "Param.%v, ", v)
 		}
 	}
 }
 
-expect_program :: proc(t: ^testing.T, program, expected: VM_Program) {
+expect_program :: proc(t: ^testing.T, program, expected: Program) {
 	testing.expect(
 		t,
 		len(program.blocks) == len(expected.blocks),

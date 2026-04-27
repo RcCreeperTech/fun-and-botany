@@ -3,7 +3,7 @@ const RIGHT_TURN_ANGLE = 0.69813 ; TAU / 9
 const LEFT_TURN_ANGLE = -0.69813 ; -TAU / 9 TODO: Unary minus for constant expressions
 
 Colors:
-    const BROWN = #D27F2DFF
+    const BROWN = #D27F2DF0
     const PINK  = #FF00FFFF
 end
 

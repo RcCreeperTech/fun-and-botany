@@ -1,5 +1,6 @@
 package web_testing
 
+import "./vm"
 import "core:log"
 import "base:intrinsics"
 import hm "core:container/handle_map"
@@ -83,7 +84,7 @@ Sim_Element :: struct {
 	density:                 f32,
 	growth_rate:             f32,
 	depth:                   u8,
-	vm_entrypoint:           VM_Label,
+	vm_entrypoint:           vm.Label,
 	// Physics handles
 	body:                    b2.BodyId,
 	shape:                   b2.ShapeId,
@@ -95,7 +96,7 @@ sim_element_spawn :: proc(
 	parent: ^Sim_Element,
 	theta: f32 = 0,
 	mass: f32 = 1,
-	vm_entrypoint: VM_Label = VM_Label(0),
+	vm_entrypoint: vm.Label = vm.Label(0),
 ) {
 	parent_tip_local := Vec2{0, parent.length}
 	parent_transform := b2.Body_GetTransform(parent.body)
@@ -157,7 +158,7 @@ sim_execute_plant_bytecode :: proc(app: ^ApplicationState, dt: f32) {
 	it := hm.iterator_make(&app.elements)
 	for element, h in hm.iterate(&it) {
 		log.debugf("Cell %v is in state %v", h, element.vm_entrypoint)
-		err := vm_run(&app.vm, app.loaded_program, element)
+		err := vm.run(&app.vm, app.loaded_program, element)
 		if err != nil {
 			log.errorf("VM Error: %v", err)
 		}

@@ -1,5 +1,5 @@
 #+test
-package web_testing
+package vm
 
 import sm "core:container/small_array"
 import "core:testing"
@@ -19,8 +19,8 @@ vm_test_push_pop :: proc(t: ^testing.T) {
 	testing.expect(t, asm_err == nil)
 
 	vm: VM
-	err := vm_run(&vm, program)
-	testing.expect_value(t, err, VM_Error.None)
+	err := run(&vm, program)
+	testing.expect_value(t, err, Error.None)
 	v := sm.pop_back(&vm.stack)
 	testing.expect_value(t, v, f32(123))
 }
@@ -39,8 +39,8 @@ vm_test_underflow :: proc(t: ^testing.T) {
 	testing.expect(t, asm_err == nil)
 
 	vm: VM
-	err := vm_run(&vm, program)
-	testing.expect_value(t, err, VM_Error.Stack_Underflow)
+	err := run(&vm, program)
+	testing.expect_value(t, err, Error.Stack_Underflow)
 }
 
 @(test)
@@ -58,8 +58,8 @@ vm_test_add :: proc(t: ^testing.T) {
 	testing.expect(t, asm_err == nil)
 
 	vm: VM
-	err := vm_run(&vm, program)
-	testing.expect_value(t, err, VM_Error.None)
+	err := run(&vm, program)
+	testing.expect_value(t, err, Error.None)
 	v := sm.pop_back(&vm.stack)
 	testing.expect_value(t, v, f32(69))
 }
@@ -79,8 +79,8 @@ vm_test_bad_add :: proc(t: ^testing.T) {
 	testing.expect(t, asm_err == nil)
 
 	vm: VM
-	err := vm_run(&vm, program)
-	testing.expect_value(t, err, VM_Error.Argument_Mismatch)
+	err := run(&vm, program)
+	testing.expect_value(t, err, Error.Argument_Mismatch)
 }
 
 @(test)
@@ -98,8 +98,8 @@ vm_test_sub_float :: proc(t: ^testing.T) {
 	testing.expect(t, asm_err == nil)
 
 	vm: VM
-	err := vm_run(&vm, program)
-	testing.expect_value(t, err, VM_Error.None)
+	err := run(&vm, program)
+	testing.expect_value(t, err, Error.None)
 	v := sm.pop_back(&vm.stack)
 	testing.expect_value(t, v, f32(1))
 }
@@ -119,6 +119,6 @@ vm_test_overflow :: proc(t: ^testing.T) {
 	testing.expect(t, asm_err == nil)
 
 	vm: VM
-	err := vm_run(&vm, program)
-	testing.expect_value(t, err, VM_Error.Stack_Overflow)
+	err := run(&vm, program)
+	testing.expect_value(t, err, Error.Stack_Overflow)
 }
