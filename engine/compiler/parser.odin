@@ -7,12 +7,12 @@ import "core:fmt"
 Parser :: struct {
 	tokens: []Token,
 	head: []Token,
-	diagnostics: ^[dynamic]Diagnostic,
+	diagnostics: ^DiagnosticList,
 	arena: Dynamic_Arena, // Parsed ast nodes go in here for cache efficency
 	allocator: mem.Allocator,
 	panic_mode: bool
 }
-parser_init :: proc(self: ^Parser, tokens: []Token, diagnostics: ^[dynamic]Diagnostic, allocator := context.allocator) {
+parser_init :: proc(self: ^Parser, tokens: []Token, diagnostics: ^DiagnosticList, allocator := context.allocator) {
 	dynamic_arena_init(&self.arena)
 	self.allocator = dynamic_arena_allocator(&self.arena)
 	self.diagnostics = diagnostics
@@ -306,6 +306,9 @@ parse_constant_def :: proc(self: ^Parser, start: ^Token, name: ^AST_Identifier, 
 	def.name = name
 	def.span[0] = start
 	def.annotation = annotation
+
+	parser_expect(self, .Equals, def)
+
 	def.value = parse_expression(self)
 	ast_span_extend(def, def.value)
 
@@ -412,7 +415,7 @@ parse_expression :: proc(self: ^Parser, precedence: Precedence = .Assignment) ->
 	case .Literal_State_Label:
 		token := parser_advance(self)
 		expr := new_ast_node(AST_State_Lit, self.allocator)
-		expr.v = token.literal_value.(string)
+		expr.v = token.raw
 		expr.span = token
 		left = expr
 	case .Identifier:
@@ -611,15 +614,10 @@ parser_advance :: proc(self: ^Parser, node: ^AST_Node = nil) -> ^Token {
 	return result
 }
 
-parser_had_errors :: proc(self: ^Parser) -> bool { return len(self.diagnostics) > 0 }
+parser_had_errors :: proc(self: ^Parser) -> bool { return len(self.diagnostics.items) > 0 }
 parser_error :: proc(self: ^Parser, span: SrcSpan, msg: string, args: ..any) {
 	self.panic_mode = true
-	diagnostic := Diagnostic{
-		subsystem = .parser,
-		span = span,
-		message = fmt.aprintf(msg, ..args, allocator=self.allocator)
-	}
-	append(self.diagnostics, diagnostic)
+	compiler_error(self.diagnostics, .parser, span, msg, ..args)
 }
 
 parser_expect :: proc(self: ^Parser, token_kind: Token_Kind, building: ^AST_Node = nil) -> (^Token, bool) #optional_ok {

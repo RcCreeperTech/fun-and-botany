@@ -567,3 +567,57 @@ rgba_u32_to_color :: proc(c: u32) -> Color {
 	a := u8(c >> 0)
 	return {r, g, b, a}
 }
+
+dump_program :: proc(p: Program) {
+	sb := strings.builder_make()
+	defer strings.builder_destroy(&sb)
+	fmt.sbprintln(&sb)
+	fmt.sbprintln(&sb, "// Program Output")
+	fmt.sbprintln(&sb, "program := Program {")
+	fmt.sbprintln(&sb, "    blocks = {")
+	for block, i in p.blocks {
+		fmt.sbprintfln(&sb, "        {{ // %v", i)
+		for inst in block {
+			fmt.sbprint(&sb, "            {")
+			if inst.precondition != .None {
+				fmt.sbprintf(&sb, " precondition = .%v, ", inst.precondition)
+			}
+			fmt.sbprintf(&sb, " op = .%v, ", inst.op)
+			if inst.imm[0] != nil || inst.imm[1] != nil {
+				fmt.sbprint(&sb, " imm = { ")
+				for val in inst.imm {
+					print_vm_value(&sb, val)
+				}
+				fmt.sbprint(&sb, "} ")
+			}
+			fmt.sbprintln(&sb, "},")
+		}
+		fmt.sbprintln(&sb, "        },")
+	}
+	fmt.sbprintln(&sb, "    }")
+	fmt.sbprintln(&sb, "}")
+	out := strings.to_string(sb)
+	log.info(out)
+
+	print_vm_value :: proc(sb: ^strings.Builder, val: Value) {
+		switch v in val {
+		case nil:
+			fmt.sbprint(sb, "nil, ")
+		case Color:
+			fmt.sbprint(sb, "Color { ")
+			for channel in v {
+				fmt.sbprint(sb, channel)
+				fmt.sbprint(sb, ", ")
+			}
+			fmt.sbprint(sb, "}, ")
+		case f32:
+			fmt.sbprintf(sb, "f32(%v), ", v)
+		case bool:
+			fmt.sbprintf(sb, "%v, ", v)
+		case Label:
+			fmt.sbprintf(sb, "Label(%v), ", v)
+		case Param:
+			fmt.sbprintf(sb, "Param.%v, ", v)
+		}
+	}
+}

@@ -37,12 +37,12 @@ end
 
 @state
 def stem(cell):
-    cell.color = Colors.BROWN
+    cell.color = BROWN
     cell.length = cell.length + 0.001
     cell.thickness = cell.thickness + 0.005
 end
 
 @(terminal, state)
 def petal(cell):
-    cell.color = Colors.PINK
+    cell.color = PINK
 end

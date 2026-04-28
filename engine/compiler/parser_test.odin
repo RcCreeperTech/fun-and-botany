@@ -171,7 +171,7 @@ test_parser_ternarys :: proc(t: ^testing.T) {
 make_test_parser :: proc(source: string) -> ^Parser {
 	tokens := scanner_collect(source)
 	parser := new(Parser)
-	diagnostics := new([dynamic]Diagnostic)
+	diagnostics := make_diagnostic_list()
 	parser_init(parser, tokens, diagnostics)
 	return parser
 }
@@ -179,27 +179,25 @@ make_test_parser :: proc(source: string) -> ^Parser {
 @(private="file")
 delete_test_parser :: proc(p: ^Parser) {
 	parser_deinit(p)
+	delete_diagnostic_list(p.diagnostics)
 	delete(p.tokens)
-	delete(p.diagnostics^)
-	free(p.diagnostics)
 	free(p)
 }
 
 @(private="file")
 expect_diagnostics :: proc(t: ^testing.T, p: ^Parser, expected: ..string) {
-	testing.expect(t, len(p.diagnostics) == len(expected), "The number of diagnostics must match")
+	testing.expect(t, len(p.diagnostics.items) == len(expected), "The number of diagnostics must match")
 
-
-	for i in 0..<len(p.diagnostics) {
-		testing.expect_value(t, p.diagnostics[i].message, expected[i])
+	for i in 0..<len(p.diagnostics.items) {
+		testing.expect_value(t, p.diagnostics.items[i].message, expected[i])
 		// TODO: How to handle the span
 	}
 }
 
 @(private="file")
 dump_parsing_diagnostics :: proc(p: ^Parser) {
-	if len(p.diagnostics) == 0 do return
-	for diagnostic in p.diagnostics {
+	if len(p.diagnostics.items) == 0 do return
+	for diagnostic in p.diagnostics.items {
 		log.debugf(">\t%s\nNOTE: %s",
 			span_to_string(diagnostic.span),
 			diagnostic.message

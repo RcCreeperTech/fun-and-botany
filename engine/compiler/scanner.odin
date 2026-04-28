@@ -72,6 +72,7 @@ ScannerError :: enum {
 }
 
 scanner_init :: proc(s: ^Scanner, source: string) {
+	s.line = 1
 	s.source = source
 	s.head = source
 }
@@ -187,7 +188,7 @@ scanner_next :: proc(s: ^Scanner) -> Token {
 				case '_', 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9':
 					advance(s)
 				case:
-					return end_token(s, .Identifier)
+					return end_token(s, .Literal_State_Label)
 				}
 			case:
 				return end_token(s, .Colon)

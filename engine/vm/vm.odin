@@ -105,6 +105,8 @@ Op :: enum u8 {
 	GetParam,
 	SetParam,
 	Spawn,
+	GetLocal,
+	SetLocal,
 }
 
 Block :: []Instruction
@@ -126,6 +128,7 @@ Error :: enum {
 	Unknown_Parameter_Access,
 	Parameter_Type_Mistmatch,
 	Readonly_Parameter,
+	Out_Of_Bounds,
 }
 
 Instruction :: struct {
@@ -265,6 +268,35 @@ exec :: proc(
 			} else {
 				// TODO: What to do here?
 			}
+		}
+	case .SetLocal:
+		ensure_arg_count(vm, 1) or_return
+		val := take_arg(vm)
+
+		// Grab the target index from the instruction's immediate
+		imm := inst.imm[0 if precond_success else 1]
+		offset := int(imm.(f32))
+
+		// If the offset equals our length, this is a new variable assignment, so we push.
+		if offset == vm.stack.len {
+			push_value(vm, val) or_return
+		} else if offset < vm.stack.len {
+			// If the offset is less, we are overwriting an existing variable.
+			vm.stack.data[offset] = val
+		} else {
+			log.error("Local variable offset out of bounds")
+			return false, .Out_Of_Bounds // Or add a .Memory_Fault error
+		}
+	case .GetLocal:
+		imm := inst.imm[0 if precond_success else 1]
+		offset := int(imm.(f32))
+
+		if offset < vm.stack.len {
+			val := vm.stack.data[offset]
+			push_value(vm, val) or_return
+		} else {
+			log.error("Attempted to load uninitialized local variable")
+			return false, .Out_Of_Bounds
 		}
 	case .Rand:
 		push_value(vm, rand.float32()) or_return
