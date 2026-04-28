@@ -40,8 +40,11 @@ new_ast_node_from_tokens :: proc($T: typeid, start, end: ^Token, allocator: mem.
 
 dump_ast_to_string :: proc(node: ^AST_Node, allocator := context.allocator, loc := #caller_location) -> string {
 	sb := strings.builder_make(allocator, loc)
+	defer strings.builder_destroy(&sb)
+
 	dump_ast(&sb, node)
-	return strings.to_string(sb)
+
+	return strings.clone(strings.to_string(sb), allocator)
 }
 
 // Note: `node` changed to pointer `^AST_Node` for efficiency and `line_len` to `^int` for shared state.
@@ -201,8 +204,11 @@ span_to_string :: proc(span: SrcSpan) -> string {
 
 dump_ast_to_string_fancy :: proc(node: ^AST_Node, allocator := context.allocator, loc := #caller_location) -> string {
 	sb := strings.builder_make(allocator, loc)
+	defer strings.builder_destroy(&sb)
+
 	dump_ast_fancy(&sb, node, 0)
-	return strings.to_string(sb)
+
+	return strings.clone(strings.to_string(sb), allocator)
 }
 
 dump_ast_fancy :: proc(sb: ^strings.Builder, node: ^AST_Node, depth: int) {

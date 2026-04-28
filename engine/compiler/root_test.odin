@@ -9,8 +9,10 @@ import "../vm"
 @(test)
 test_compiler_dummy :: proc(t: ^testing.T) {
 	source := #load("./test_cases/plant_test_code.pil", string)
-	c: Compiler
-	program, ok := compile_program(&c, source)
+	c := make_compiler()
+	defer delete_compiler(c)
+
+	program, ok := compile_program(c, source)
 
 	log.debugf("Got this out:\n")
 	vm.dump_program(program)

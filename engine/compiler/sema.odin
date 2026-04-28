@@ -141,10 +141,12 @@ sema_check_program :: proc(self: ^Compiler) {
 sema_check_function :: proc(self: ^Compiler, func: ^AST_Function_Def) {
 	ctx := Sema_Context{
 		locals = make(map[string]int, 16, self.allocator),
+		local_types = make(map[string]Type_Class, 16, self.allocator),
 		local_count = 0,
 		inside_state_function = def_has_annotation(func, "state"),
 	}
 	defer delete(ctx.locals)
+	defer delete(ctx.local_types)
 
 	// Register parameters (like 'cell') so they don't trigger "undefined variable"
 	for param in func.params {

@@ -168,50 +168,42 @@ test_parser_ternarys :: proc(t: ^testing.T) {
 }
 
 @(private="file")
-make_test_parser :: proc(source: string) -> ^Parser {
+make_test_parser :: proc(source: string, arena: ^Dynamic_Arena) -> ^Parser {
 	tokens := scanner_collect(source)
 	parser := new(Parser)
-	diagnostics := make_diagnostic_list()
-	parser_init(parser, tokens, diagnostics)
+	arena_allocator := dynamic_arena_allocator(arena)
+	diagnostics := make_diagnostic_list(arena)
+	parser_init(parser, tokens, diagnostics, arena)
 	return parser
 }
 
 @(private="file")
 delete_test_parser :: proc(p: ^Parser) {
-	parser_deinit(p)
-	delete_diagnostic_list(p.diagnostics)
 	delete(p.tokens)
 	free(p)
 }
 
 @(private="file")
-expect_diagnostics :: proc(t: ^testing.T, p: ^Parser, expected: ..string) {
-	testing.expect(t, len(p.diagnostics.items) == len(expected), "The number of diagnostics must match")
+expect_diagnostics :: proc(t: ^testing.T, diagnostics: ^DiagnosticList, expected: ..string) {
+	testing.expect(t, len(diagnostics.items) == len(expected), "The number of diagnostics must match")
 
-	for i in 0..<len(p.diagnostics.items) {
-		testing.expect_value(t, p.diagnostics.items[i].message, expected[i])
+	for i in 0..<len(diagnostics.items) {
+		testing.expect_value(t, diagnostics.items[i].message, expected[i])
 		// TODO: How to handle the span
 	}
 }
 
-@(private="file")
-dump_parsing_diagnostics :: proc(p: ^Parser) {
-	if len(p.diagnostics.items) == 0 do return
-	for diagnostic in p.diagnostics.items {
-		log.debugf(">\t%s\nNOTE: %s",
-			span_to_string(diagnostic.span),
-			diagnostic.message
-		)
-	}
-}
+test_parse_expression :: proc(t: ^testing.T, source: string, expected: string, expected_diagnostics: ..string) {
+	arena: Dynamic_Arena
+	dynamic_arena_init(&arena)
+	defer dynamic_arena_destroy(&arena)
 
-test_parse_expression :: proc(t: ^testing.T, source: string, expected: string, diagnostics: ..string) {
-	p := make_test_parser(source)
+	p := make_test_parser(source, &arena)
 	defer delete_test_parser(p)
 
 	expr := parse_expression(p)
-	should_have_errors := len(diagnostics) > 0
-	testing.expect(t, should_have_errors == parser_had_errors(p))
+	should_have_errors := len(expected_diagnostics) > 0
+	testing.expect(t, should_have_errors == (len(p.diagnostics.items) > 0))
 
 	tuple := dump_ast_to_string(expr)
 	defer delete(tuple)
@@ -219,17 +211,24 @@ test_parse_expression :: proc(t: ^testing.T, source: string, expected: string, d
 	log.debug("\n\nAst:", tuple, "\n\n")
 	testing.expect_value(t, tuple, expected)
 
-	dump_parsing_diagnostics(p)
-	expect_diagnostics(t, p, ..diagnostics)
+	test_dump_diagnostics(p.diagnostics)
+	expect_diagnostics(t, p.diagnostics, ..expected_diagnostics)
 }
 
-test_parse_program :: proc(t: ^testing.T, source: string, expected: string, diagnostics: ..string) {
-	p := make_test_parser(source)
-	defer delete_test_parser(p)
+test_parse_program :: proc(t: ^testing.T, source: string, expected: string, expected_diagnostics: ..string) {
+	arena: Dynamic_Arena
+	dynamic_arena_init(&arena)
+	defer dynamic_arena_destroy(&arena)
 
-	ast := parse_program(p)
-	should_have_errors := len(diagnostics) > 0
-	testing.expect(t, should_have_errors == parser_had_errors(p))
+	tokens := scanner_collect(source)
+	defer delete(tokens)
+
+	diagnostics := make_diagnostic_list(&arena)
+
+	ast := parser_collect(tokens, diagnostics, &arena)
+
+	should_have_errors := len(expected_diagnostics) > 0
+	testing.expect(t, should_have_errors == (len(diagnostics.items) > 0))
 
 	tuple := dump_ast_to_string(ast)
 	defer delete(tuple)
@@ -237,6 +236,6 @@ test_parse_program :: proc(t: ^testing.T, source: string, expected: string, diag
 	log.debug("\n\nAst:", tuple, "\n\n")
 	testing.expect_value(t, tuple, expected)
 
-	dump_parsing_diagnostics(p)
-	expect_diagnostics(t, p, ..diagnostics)
+	test_dump_diagnostics(diagnostics)
+	expect_diagnostics(t, diagnostics, ..expected_diagnostics)
 }

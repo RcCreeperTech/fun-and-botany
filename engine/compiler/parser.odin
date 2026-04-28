@@ -8,19 +8,21 @@ Parser :: struct {
 	tokens: []Token,
 	head: []Token,
 	diagnostics: ^DiagnosticList,
-	arena: Dynamic_Arena, // Parsed ast nodes go in here for cache efficency
 	allocator: mem.Allocator,
 	panic_mode: bool
 }
-parser_init :: proc(self: ^Parser, tokens: []Token, diagnostics: ^DiagnosticList, allocator := context.allocator) {
-	dynamic_arena_init(&self.arena)
-	self.allocator = dynamic_arena_allocator(&self.arena)
+
+parser_collect :: proc(tokens: []Token, diagnostics: ^DiagnosticList, arena: ^Dynamic_Arena) -> ^AST_Module {
+	p: Parser // Parser is ephemeral so this is ok. The ast/diagnostics are allocated to arenas
+	parser_init(&p, tokens, diagnostics, arena)
+	return parse_program(&p)
+}
+
+parser_init :: proc(self: ^Parser, tokens: []Token, diagnostics: ^DiagnosticList, arena: ^Dynamic_Arena) {
+	self.allocator = dynamic_arena_allocator(arena)
 	self.diagnostics = diagnostics
 	self.tokens = tokens
 	self.head = tokens
-}
-parser_deinit :: proc(self: ^Parser) {
-	dynamic_arena_destroy(&self.arena)
 }
 
 parse_program :: proc(self: ^Parser) -> ^AST_Module {
@@ -258,7 +260,7 @@ parse_if_stmt :: proc(self: ^Parser) -> ^AST_If_Stmt {
 	parser_expect(self, .Colon, stmt)
 	parser_expect(self, .End_Of_Statement, stmt)
 
-	body_if := make([dynamic]^AST_Stmt)
+	body_if := make([dynamic]^AST_Stmt, self.allocator)
 	for {
 		if parser_eat_optional(self, .End_Of_Statement) do continue
 		next := parser_peek(self)
@@ -280,7 +282,7 @@ parse_if_stmt :: proc(self: ^Parser) -> ^AST_If_Stmt {
 		parser_expect(self, .Colon, stmt)
 		parser_expect(self, .End_Of_Statement, stmt)
 
-		body_else := make([dynamic]^AST_Stmt)
+		body_else := make([dynamic]^AST_Stmt, self.allocator)
 		for {
 			if parser_eat_optional(self, .End_Of_Statement) do continue
 			next := parser_peek(self)

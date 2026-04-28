@@ -8,18 +8,22 @@ import "../vm"
 DynBlock :: [dynamic]vm.Instruction
 
 Compiler :: struct{
-	source: string,
-	tokens: []Token,
-	parser: Parser, // Currently holds Dynamic_Arena where ast is alloced
-	ast: ^AST_Module,
+	source:       string,
+	tokens:       []Token,
+	ast:          ^AST_Module,
 	state_uid:    uint,
 	state_table:  map[string]vm.Label,
 	symbol_table: map[string]vm.Value,
 	blocks:       [dynamic]DynBlock,
-	entrypoint: Maybe(string),
-	terminal: Maybe(string),
-	diagnostics: ^DiagnosticList,
-	allocator: mem.Allocator
+	entrypoint:   Maybe(string),
+	terminal:     Maybe(string),
+	diagnostics:  ^DiagnosticList,
+	allocator:    mem.Allocator,
+	arenas: struct {
+		ast:         Dynamic_Arena,
+		blocks:      Dynamic_Arena,
+		diagnostics: Dynamic_Arena,
+	}
 }
 
 CompilerSubsystem :: enum { parser, sema }
@@ -32,33 +36,45 @@ DiagnosticList :: struct {
 	items: [dynamic]Diagnostic,
 	allocator: mem.Allocator,
 }
-make_diagnostic_list :: proc(allocator := context.allocator) -> ^DiagnosticList {
-	self := new(DiagnosticList, allocator)
-	self.items = make([dynamic]Diagnostic, allocator)
-	self.allocator = allocator
+make_diagnostic_list :: proc(arena: ^Dynamic_Arena) -> ^DiagnosticList {
+	arena_allocator := dynamic_arena_allocator(arena)
+	self := new(DiagnosticList, arena_allocator)
+	self.items = make([dynamic]Diagnostic, arena_allocator)
+	self.allocator = arena_allocator
 	return self
 }
-delete_diagnostic_list :: proc(self: ^DiagnosticList) {
-	delete(self.items)
+
+make_compiler :: proc(allocator := context.allocator, loc := #caller_location) -> ^Compiler {
+	self := new(Compiler, allocator, loc)
+	self.allocator = allocator
+	dynamic_arena_init(&self.arenas.ast, self.allocator, self.allocator)
+	dynamic_arena_init(&self.arenas.blocks, self.allocator, self.allocator)
+	dynamic_arena_init(&self.arenas.diagnostics, self.allocator, self.allocator)
+	return self
+}
+delete_compiler :: proc(self: ^Compiler) {
+	dynamic_arena_destroy(&self.arenas.ast)
+	dynamic_arena_destroy(&self.arenas.blocks)
+	dynamic_arena_destroy(&self.arenas.diagnostics)
+	delete(self.state_table)
+	delete(self.symbol_table)
+	delete(self.tokens)
+	delete(self.blocks)
 	free(self)
 }
 
-compile_program :: proc(self: ^Compiler, source: string, allocator := context.allocator) -> (vm.Program, bool) {
+compile_program :: proc(self: ^Compiler, source: string) -> (vm.Program, bool) {
 	self.source = source
-	self.allocator = allocator
-	self.tokens = scanner_collect(self.source, allocator)
-	self.diagnostics = make_diagnostic_list(allocator)
-	self.state_table = make(map[string]vm.Label, allocator)
-	self.blocks = make([dynamic]DynBlock, allocator)
+	self.tokens = scanner_collect(self.source, self.allocator)
+	self.diagnostics = make_diagnostic_list(&self.arenas.diagnostics)
+	self.state_table = make(map[string]vm.Label, self.allocator)
+	self.blocks = make([dynamic]DynBlock, self.allocator)
 
 	_ = alloc_block(self) // 0 is reserved for main
 	_ = alloc_block(self) // 1 is reserved for terminal
 	assert(self.state_uid == 2, "Blocks for main and terminal were not reserved")
 
-	parser_init(&self.parser, self.tokens, self.diagnostics, allocator)
-	self.ast = parse_program(&self.parser)
-
-	fmt.printfln("AST:\n\n%v", dump_ast_to_string_fancy(self.ast))
+	self.ast = parser_collect(self.tokens, self.diagnostics, &self.arenas.ast)
 
 	sema_resolve_globals(self)
 	sema_check_program(self)

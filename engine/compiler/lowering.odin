@@ -15,7 +15,11 @@ lower_ast :: proc(self: ^Compiler, ast: ^AST_Module) -> vm.Program {
 	}
 
 	// Finalize the blocks into the format the VM expects
-	final_blocks := make([]vm.Block, len(self.blocks), self.allocator)
+	block_allocator := dynamic_arena_allocator(&self.arenas.blocks)
+	// I dont think this is the right place... Gotta write some usage code and
+	// see where it shakes out. Also should this be its own subsystem? Its
+	// unclear who owns the blocks because sema also generates them.
+	final_blocks := make([]vm.Block, len(self.blocks), block_allocator)
 	for block, i in self.blocks {
 		final_blocks[i] = block[:]
 	}
@@ -257,9 +261,10 @@ map_string_to_vm_param :: proc(name: string) -> vm.Param {
 }
 
 alloc_block :: proc(self: ^Compiler) -> vm.Label {
+	block_allocator := dynamic_arena_allocator(&self.arenas.blocks)
 	id := vm.Label(self.state_uid)
 	self.state_uid += 1
-	block := make(DynBlock, self.allocator)
+	block := make(DynBlock, block_allocator)
 	append(&self.blocks, block)
 
 	return id
