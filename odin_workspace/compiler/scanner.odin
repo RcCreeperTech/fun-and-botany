@@ -1,7 +1,6 @@
 package compiler
 
 import "core:strconv"
-import "core:log"
 
 Color :: [4]u8
 
@@ -40,6 +39,8 @@ Token_Kind :: enum {
 	Open_Paren, Close_Paren,
 	At,
 
+	Comment,
+
 	Error,
 	End_Of_Statement,
 	End_Of_Stream,
@@ -63,6 +64,7 @@ Scanner :: struct {
 	head:      string,
 	prev:      Token_Kind,
 	builder:   Token,
+	skip_comments: bool,
 }
 ScannerError :: enum {
 	None = 0,
@@ -71,15 +73,16 @@ ScannerError :: enum {
 	Malformed_Color,
 }
 
-scanner_init :: proc(s: ^Scanner, source: string) {
+scanner_init :: proc(s: ^Scanner, source: string, skip_comments:=true) {
 	s.line = 1
 	s.source = source
 	s.head = source
+	s.skip_comments = skip_comments
 }
 
-scanner_collect :: proc(source: string, allocator := context.allocator) -> []Token {
+scanner_collect :: proc(source: string, skip_comments:=true, allocator := context.allocator) -> []Token {
 	s: Scanner
-	scanner_init(&s, source)
+	scanner_init(&s, source, skip_comments)
 	tokens := make([dynamic]Token, allocator)
 	for {
 		tok := scanner_next(&s)
@@ -118,8 +121,19 @@ scanner_next :: proc(s: ^Scanner) -> Token {
 		begin_token(s)
 		return end_token(s, .Asterisk)
 	case '/':
-		begin_token(s)
-		return end_token(s, .Forward_Slash)
+		if !s.skip_comments {
+			if peek_next(s) == '/' {
+				begin_token(s)
+				for peek(s) != '\n' && peek(s) != 0 do advance(s)
+				return end_token(s, .Comment)
+			} else {
+				begin_token(s)
+				return end_token(s, .Forward_Slash)
+			}
+		} else {
+			begin_token(s)
+			return end_token(s, .Forward_Slash)
+		}
 	case '+':
 		begin_token(s)
 		return end_token(s, .Plus)
@@ -235,7 +249,8 @@ scanner_next :: proc(s: ^Scanner) -> Token {
 		}
 
 	case:
-		log.panicf("Unimplemented: Head is at: [%v]\"%c\".", s.head[0], s.head[0])
+		begin_token(s)
+		return end_token(s, .Error)
 	}
 
 	scan_number :: proc(s: ^Scanner) -> Token {
@@ -327,7 +342,11 @@ scanner_next :: proc(s: ^Scanner) -> Token {
 			advance(s)
 		case '/': // Comments
 			if (peek_next(s) == '/') {
-				for peek(s) != '\n' do advance(s)
+				if s.skip_comments {
+					for peek(s) != '\n' && peek(s) != 0 do advance(s)
+				} else {
+					return
+				}
 			} else {
 				return
 			}

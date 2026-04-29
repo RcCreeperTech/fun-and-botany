@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "vite",
     "build:clean": "rm public/*",
+    "build:compiler_web_worker": "odin build odin_workspace/compiler_web_worker/ -target=js_wasm32 -build-mode:lib -debug -out:public/compiler_web_worker.wasm",
     "build:engine": "odin build odin_workspace/engine/ -target=js_wasm32 -build-mode:lib -debug -out:public/engine.wasm",
     "build:engine-release": "odin build odin_workspace/engine/ -target=js_wasm32 -build-mode:lib -o:speed -out:public/engine.wasm",
     "test:vm": "odin test odin_workspace/compiler",

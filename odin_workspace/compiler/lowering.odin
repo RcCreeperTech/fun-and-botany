@@ -262,8 +262,7 @@ map_string_to_vm_param :: proc(name: string) -> vm.Param {
 
 alloc_block :: proc(self: ^Compiler) -> vm.Label {
 	block_allocator := dynamic_arena_allocator(&self.arenas.blocks)
-	id := vm.Label(self.state_uid)
-	self.state_uid += 1
+	id := vm.Label(len(self.blocks))
 	block := make(DynBlock, block_allocator)
 	append(&self.blocks, block)
 

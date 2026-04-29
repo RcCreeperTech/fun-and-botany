@@ -8,10 +8,8 @@ import "../vm"
 DynBlock :: [dynamic]vm.Instruction
 
 Compiler :: struct{
-	source:       string,
 	tokens:       []Token,
 	ast:          ^AST_Module,
-	state_uid:    uint,
 	state_table:  map[string]vm.Label,
 	symbol_table: map[string]vm.Value,
 	blocks:       [dynamic]DynBlock,
@@ -50,6 +48,12 @@ make_compiler :: proc(allocator := context.allocator, loc := #caller_location) -
 	dynamic_arena_init(&self.arenas.ast, self.allocator, self.allocator)
 	dynamic_arena_init(&self.arenas.blocks, self.allocator, self.allocator)
 	dynamic_arena_init(&self.arenas.diagnostics, self.allocator, self.allocator)
+
+	self.diagnostics  = make_diagnostic_list(&self.arenas.diagnostics)
+	self.state_table  = make(map[string]vm.Label, self.allocator)
+	self.symbol_table = make(map[string]vm.Value, self.allocator)
+	self.blocks       = make([dynamic]DynBlock, self.allocator)
+
 	return self
 }
 delete_compiler :: proc(self: ^Compiler) {
@@ -62,14 +66,22 @@ delete_compiler :: proc(self: ^Compiler) {
 	delete(self.blocks)
 	free(self)
 }
+reset_compiler :: proc(self: ^Compiler) {
+	delete(self.tokens)
+	dynamic_arena_reset(&self.arenas.ast)
+	dynamic_arena_reset(&self.arenas.blocks)
+	dynamic_arena_reset(&self.arenas.diagnostics)
+
+	clear(&self.state_table)
+	clear(&self.symbol_table)
+	clear(&self.blocks)
+
+	self.entrypoint = nil
+	self.terminal = nil
+}
 
 compile_program :: proc(self: ^Compiler, source: string) -> (vm.Program, bool) {
-	self.source = source
-	self.tokens = scanner_collect(self.source, self.allocator)
-	self.diagnostics = make_diagnostic_list(&self.arenas.diagnostics)
-	self.state_table = make(map[string]vm.Label, self.allocator)
-	self.blocks = make([dynamic]DynBlock, self.allocator)
-
+	self.tokens = scanner_collect(source, allocator=self.allocator)
 	self.ast = parser_collect(self.tokens, self.diagnostics, &self.arenas.ast)
 	sema_resolve_globals(self)
 	sema_check_program(self)
@@ -77,6 +89,15 @@ compile_program :: proc(self: ^Compiler, source: string) -> (vm.Program, bool) {
 	program := lower_ast(self, self.ast)
 
 	return program, true
+}
+
+analyze_program :: proc(self: ^Compiler, source: string) {
+	self.tokens = scanner_collect(source, allocator=self.allocator)
+	self.diagnostics = make_diagnostic_list(&self.arenas.diagnostics)
+
+	self.ast = parser_collect(self.tokens, self.diagnostics, &self.arenas.ast)
+	sema_resolve_globals(self)
+	sema_check_program(self)
 }
 
 compiler_error :: proc(diagnostics: ^DiagnosticList, subsystem: CompilerSubsystem, span: SrcSpan, msg: string, args: ..any) {

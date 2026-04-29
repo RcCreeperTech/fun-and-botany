@@ -1,17 +1,46 @@
-import { createSignal } from "solid-js";
-import BlockEditor from "./BlockEditor";
+import { createSignal, onMount, onCleanup } from "solid-js";
 import { useSimulationContext } from "./context/SimulationContext";
 import CodeEditor from "./components/CodeEditor";
 
 export default function App() {
   let canvasRef;
   const { bridge, isReady } = useSimulationContext();
+  let compilerWorker;
+  const [sourceCode, setSourceCode] = createSignal("// Write your procedural rules here\n");
+  const [tokens, setTokens] = createSignal(null);
 
-  const [sourceCode, setSourceCode] = createSignal("");
+  onMount(() => {
+    compilerWorker = new Worker(
+      new URL('./workers/compiler.worker.js', import.meta.url),
+      { type: 'module' }
+    );
 
-  const handleDocChange = (newCode) => {
-    setSourceCode(newCode);
-    // Future: Debounce this and trigger postMessage to the compiler Web Worker
+    compilerWorker.onmessage = (e) => {
+      const { type, payload } = e.data;
+      if (type === 'INIT_SUCCESS') {
+        console.log("Compiler Worker initialized.");
+        // Push the initial code to the worker so their buffers match from frame 0
+        compilerWorker.postMessage({
+          type: 'SOURCE_EDIT',
+          payload: { editStart: 0, editLen: 0, text: sourceCode() }
+        });
+      } else if (type === 'INIT_ERROR') {
+        console.error("Worker failed to start:", payload);
+      } else if (type === 'TOKENS_RESULT') {
+        setTokens(payload)
+      }
+    };
+  });
+
+  onCleanup(() => { if (compilerWorker) compilerWorker.terminate(); });
+
+  const handleDocChange = (edit) => {
+    if (compilerWorker) {
+      compilerWorker.postMessage({
+        type: 'SOURCE_EDIT',
+        payload: edit
+      });
+    }
   };
 
   return (
@@ -22,6 +51,7 @@ export default function App() {
           <CodeEditor
             initialCode={sourceCode()}
             onDocChange={handleDocChange}
+            tokens={tokens()}
           />
         </div>
 

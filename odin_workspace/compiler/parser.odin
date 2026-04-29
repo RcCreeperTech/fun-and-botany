@@ -35,7 +35,16 @@ parse_program :: proc(self: ^Parser) -> ^AST_Module {
 
 		if self.panic_mode {
 			self.panic_mode = false
-			parser_sync(self)
+			sync: for {
+				#partial switch parser_peek(self).kind {
+		        case .Keyword_Def, .End_Of_Stream:
+           			break sync
+		        case .Keyword_End:
+		            parser_advance(self)
+					break sync
+		        }
+		        parser_advance(self)
+		    }
 		}
 
 		assert(def != nil)
@@ -43,20 +52,6 @@ parse_program :: proc(self: ^Parser) -> ^AST_Module {
 	}
 	module.defs = top_level_defs[:]
 	return module
-}
-
-parser_sync :: proc(self: ^Parser) {
-	for {
-		#partial switch parser_peek(self).kind {
-        // These always start a new statement or def — safe to resume
-        case .Keyword_End, .Keyword_Def, .Keyword_If, .Keyword_Return, .End_Of_Stream:
-            return
-        case .End_Of_Statement:
-            parser_advance(self)
-            return
-        }
-        parser_advance(self)
-    }
 }
 
 parse_top_level_def :: proc(self: ^Parser) -> ^AST_Top_Level_Def {
@@ -69,7 +64,9 @@ parse_top_level_def :: proc(self: ^Parser) -> ^AST_Top_Level_Def {
 
 	start, ok := parser_expect(self, .Keyword_Def)
 	if !ok {
-		parser_error(self, annotation.span, "Annotation is not attached to a top level def")
+		if annotation.span != nil { // No need to report this if the annotation is empty
+			parser_error(self, annotation.span, "Annotation is not attached to a top level def")
+		}
 		dummy := new_ast_node(AST_Top_Level_Def, self.allocator)
 		dummy.annotation = annotation
 		dummy.has_errors = true
@@ -172,15 +169,24 @@ parse_function_def :: proc(self: ^Parser, start: ^Token, name: ^AST_Identifier, 
 	parser_expect(self, .End_Of_Statement, def)
 
 	stmts := make([dynamic]^AST_Stmt, self.allocator)
-	for parser_peek(self).kind != .Keyword_End {
+	for parser_peek(self).kind != .Keyword_End && parser_peek(self).kind != .End_Of_Stream {
 		if parser_eat_optional(self, .End_Of_Statement) do continue
 
 		stmt := parse_stmt(self)
 		ast_span_extend(def, stmt)
 
-		if self.panic_mode { // Q: is this a good place to sync?
+		if self.panic_mode {
 			self.panic_mode = false
-			parser_sync(self)
+			sync: for {
+				#partial switch parser_peek(self).kind {
+    			case .Keyword_If, .Keyword_Return, .End_Of_Stream, .Keyword_End:
+					break sync
+		        case .End_Of_Statement:
+		            parser_advance(self)
+					break sync
+		        }
+		        parser_advance(self)
+		    }
 		}
 
 		append(&stmts, stmt)
@@ -261,7 +267,7 @@ parse_if_stmt :: proc(self: ^Parser) -> ^AST_If_Stmt {
 	parser_expect(self, .End_Of_Statement, stmt)
 
 	body_if := make([dynamic]^AST_Stmt, self.allocator)
-	for {
+	for parser_peek(self).kind != .End_Of_Stream {
 		if parser_eat_optional(self, .End_Of_Statement) do continue
 		next := parser_peek(self)
 		if next.kind == .Keyword_Else || next.kind == .Keyword_End do break
@@ -283,7 +289,7 @@ parse_if_stmt :: proc(self: ^Parser) -> ^AST_If_Stmt {
 		parser_expect(self, .End_Of_Statement, stmt)
 
 		body_else := make([dynamic]^AST_Stmt, self.allocator)
-		for {
+		for parser_peek(self).kind != .End_Of_Stream {
 			if parser_eat_optional(self, .End_Of_Statement) do continue
 			next := parser_peek(self)
 			if next.kind == .Keyword_End do break
@@ -446,7 +452,7 @@ parse_expression :: proc(self: ^Parser, precedence: Precedence = .Assignment) ->
 	}
 
 	// Keep parsing as long as the upcoming token has a higher or equal precedence
-	for  {
+	for parser_peek(self).kind != .End_Of_Stream {
 		next := parser_peek(self)
 		next_precedence := precedence_table[next.kind]
 
@@ -618,6 +624,7 @@ parser_advance :: proc(self: ^Parser, node: ^AST_Node = nil) -> ^Token {
 
 parser_had_errors :: proc(self: ^Parser) -> bool { return len(self.diagnostics.items) > 0 }
 parser_error :: proc(self: ^Parser, span: SrcSpan, msg: string, args: ..any) {
+	if self.panic_mode do return
 	self.panic_mode = true
 	compiler_error(self.diagnostics, .parser, span, msg, ..args)
 }

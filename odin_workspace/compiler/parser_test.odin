@@ -35,6 +35,28 @@ test_parser_binops :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parser_double_end :: proc(t: ^testing.T) {
+	test_parse_program(t,
+		`def foo():
+			end
+		end`,
+		"(module (function_def () (foo) () ()) !())",
+		"Expected Keyword_Def but got Keyword_End.",
+	)
+	test_parse_program(t,
+		`def foo():
+			end
+			foo = 123
+			if 6 > 7:
+			end
+		end`,
+		"(module (function_def () (foo) () ()) !() !())",
+		"Expected Keyword_Def but got Identifier.",
+		"Expected Keyword_Def but got Keyword_End.",
+	)
+}
+
+@(test)
 test_parser_functions :: proc(t: ^testing.T) {
 	test_parse_program(t,
 		`def foo():
@@ -83,7 +105,6 @@ test_parser_functions :: proc(t: ^testing.T) {
 		"Expected expression but found a(n) Keyword_Return: 'return'."
 	)
 
-
 	test_parse_program(t,
 		`
 		@(foo, bar, baz, )
@@ -92,7 +113,6 @@ test_parser_functions :: proc(t: ^testing.T) {
 		end`,
 		"(module (function_def ((foo) (bar) (baz)) (foo) () (!(assign (funny) !()))))",
 		"Expected an expression but found the end of the line.",
-		"Expected End_Of_Statement but got Keyword_End."
 	)
 
 	test_parse_program(t,

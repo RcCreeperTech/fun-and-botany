@@ -1,8 +1,9 @@
-import { onMount, onCleanup } from "solid-js";
+import { onMount, onCleanup, createEffect } from "solid-js";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
 import { appTheme } from "./editorTheme";
+import { semanticTokensField, updateSemanticTokens } from "./semanticTokens";
 
 export default function CodeEditor(props) {
   let containerRef;
@@ -15,11 +16,20 @@ export default function CodeEditor(props) {
     const extensions = [
       appTheme,
       lineNumbers(),
+      semanticTokensField,
       keymap.of(defaultKeymap),
       // Listen for document changes and bubble them up to the main thread state
       EditorView.updateListener.of((update) => {
         if (update.docChanged && props.onDocChange) {
-          props.onDocChange(update.state.doc.toString());
+          // Iterate over every individual edit in this transaction
+          update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+            props.onDocChange({
+              editStart: fromA,
+              editLen: toA - fromA, // How many characters were replaced/deleted
+              text: inserted.toString() // The new text being inserted
+            });
+          });
+
         }
       }),
     ];
@@ -34,6 +44,14 @@ export default function CodeEditor(props) {
       parent: containerRef,
     });
   });
+
+  createEffect(() => {
+    if (view && props.tokens) {
+      view.dispatch({
+        effects: updateSemanticTokens.of(props.tokens)
+      });
+    }
+  })
 
   onCleanup(() => {
     if (view) view.destroy();

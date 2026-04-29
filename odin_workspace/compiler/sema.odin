@@ -14,7 +14,7 @@ Type_Class :: enum {
 
 Sema_Context :: struct {
 	locals:      map[string]int,
-	local_types: map[string]Type_Class, // NEW: Track types for unification
+	local_types: map[string]Type_Class, 
 	local_count: int,
 	inside_state_function: bool
 }
@@ -28,7 +28,7 @@ def_has_annotation :: proc(def: ^AST_Top_Level_Def, name: string) -> bool {
 sema_resolve_globals :: proc(self: ^Compiler) {
 	_ = alloc_block(self) // 0 is reserved for main
 	_ = alloc_block(self) // 1 is reserved for terminal
-	assert(self.state_uid == 2, "Blocks for main and terminal were not reserved")
+	assert(len(self.blocks) == 2, "Blocks for main and terminal were not reserved")
 
 	for def in self.ast.defs {
 
@@ -47,7 +47,6 @@ sema_resolve_globals :: proc(self: ^Compiler) {
 				sema_error(self, func.span, "State ':%s' is already defined.", name)
 				continue
 			}
-
 
 			uid: vm.Label
 			switch {
@@ -135,7 +134,7 @@ sema_check_program :: proc(self: ^Compiler) {
 	for def in self.ast.defs {
 		#partial switch d in def.derived_def {
 		case ^AST_Function_Def:
-			if def_has_annotation(def, "state") { // Assuming you kept the helper
+			if def_has_annotation(def, "state") {
 				sema_check_function(self, d)
 			}
 		}
