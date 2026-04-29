@@ -18,8 +18,12 @@
     "test:compiler": "odin test odin_workspace/vm"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
     "@dnd-kit/solid": "^0.3.2",
     "@tailwindcss/vite": "^4.2.2",
+    "codemirror": "^6.0.2",
     "npm": "^11.12.1",
     "solid": "^0.2.1",
     "tailwindcss": "^4.2.2"
