@@ -70,16 +70,11 @@ compile_program :: proc(self: ^Compiler, source: string) -> (vm.Program, bool) {
 	self.state_table = make(map[string]vm.Label, self.allocator)
 	self.blocks = make([dynamic]DynBlock, self.allocator)
 
-	_ = alloc_block(self) // 0 is reserved for main
-	_ = alloc_block(self) // 1 is reserved for terminal
-	assert(self.state_uid == 2, "Blocks for main and terminal were not reserved")
-
 	self.ast = parser_collect(self.tokens, self.diagnostics, &self.arenas.ast)
-
 	sema_resolve_globals(self)
 	sema_check_program(self)
 	if len(self.diagnostics.items) != 0 { return {}, false }
-	program := lower_ast(self, self.ast) // TODO: Implement me
+	program := lower_ast(self, self.ast)
 
 	return program, true
 }

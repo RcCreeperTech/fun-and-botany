@@ -1,6 +1,6 @@
-package web_testing
+package engine
 
-import "vm"
+import "../vm"
 
 vm_spawn_element :: proc(user_context: any, theta: f32, mass: f32, entrypoint: vm.Label) {
 	element := user_context.(^Sim_Element)

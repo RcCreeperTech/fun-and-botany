@@ -26,6 +26,10 @@ def_has_annotation :: proc(def: ^AST_Top_Level_Def, name: string) -> bool {
 }
 
 sema_resolve_globals :: proc(self: ^Compiler) {
+	_ = alloc_block(self) // 0 is reserved for main
+	_ = alloc_block(self) // 1 is reserved for terminal
+	assert(self.state_uid == 2, "Blocks for main and terminal were not reserved")
+
 	for def in self.ast.defs {
 
 		if def_has_annotation(def, "state") {

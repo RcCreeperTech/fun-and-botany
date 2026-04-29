@@ -12,8 +12,10 @@
   "scripts": {
     "dev": "vite",
     "build:clean": "rm public/*",
-    "build:engine": "odin build engine -target=js_wasm32 -build-mode:lib -debug -out:public/engine.wasm",
-    "build:engine-release": "odin build engine -target=js_wasm32 -build-mode:lib -o:speed -out:public/engine.wasm"
+    "build:engine": "odin build odin_workspace/engine/ -target=js_wasm32 -build-mode:lib -debug -out:public/engine.wasm",
+    "build:engine-release": "odin build odin_workspace/engine/ -target=js_wasm32 -build-mode:lib -o:speed -out:public/engine.wasm",
+    "test:vm": "odin test odin_workspace/compiler",
+    "test:compiler": "odin test odin_workspace/vm"
   },
   "dependencies": {
     "@dnd-kit/solid": "^0.3.2",

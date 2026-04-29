@@ -1,5 +1,5 @@
 #+feature using-stmt
-package web_testing
+package engine
 
 import "core:log"
 import wgl "WebGL"
@@ -11,7 +11,7 @@ import la "core:math/linalg"
 import rg "renderer"
 import b2 "vendor:box2d"
 
-import pvm "vm"
+import pvm "../vm"
 
 BOX2D_DEBUG_DRAW :: false
 SIM_GROUND_THICKNESS :: 200
@@ -131,10 +131,10 @@ main :: proc() {
 	app.root_element = hm.add(&app.elements, root)
 
 	context.logger.lowest_level = .Error
-	source: string = #load("./test_cases/plant_test_code.asm")
-	assembler: Assembler
-	asm_init(&assembler)
-	prog, err := asm_assemble(&assembler, source)
+	source: string = #load("../vm/test_cases/plant_test_code.asm")
+	assembler: pvm.Assembler
+	pvm.asm_init(&assembler)
+	prog, err := pvm.asm_assemble(&assembler, source)
 	assert(err == nil)
 	app.loaded_program = prog
 	context.logger.lowest_level = .Debug

@@ -1,6 +1,6 @@
-package web_testing
+package engine
 
-import "./vm"
+import "../vm"
 import "core:log"
 import "base:intrinsics"
 import hm "core:container/handle_map"
