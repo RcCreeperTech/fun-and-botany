@@ -1,35 +1,48 @@
 import { onMount, onCleanup, createEffect } from "solid-js";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { defaultKeymap } from "@codemirror/commands";
+import { defaultKeymap, indentWithTab, history, historyKeymap, redo } from "@codemirror/commands";
+import { closeBrackets } from "@codemirror/autocomplete"
+import { indentUnit, foldGutter } from "@codemirror/language"
 import { appTheme } from "./editorTheme";
-import { semanticTokensField, updateSemanticTokens } from "./semanticTokens";
+import { pilLanguage, updateSemanticTokens } from "./pilLanguage";
 
 export default function CodeEditor(props) {
   let containerRef;
   let view;
 
   onMount(() => {
-    // Phase 1: Core extension composition
-    // Placeholder for Phase 2 & 3: We will inject the custom syntax highlighting
-    // and Web Worker linter extensions into this array later.
     const extensions = [
       appTheme,
+      history(),
       lineNumbers(),
-      semanticTokensField,
-      keymap.of(defaultKeymap),
+      foldGutter(),
+      closeBrackets(),
+      indentUnit.of("    "),
+      pilLanguage(),
+      keymap.of([
+        ...historyKeymap,
+        ...defaultKeymap,
+        indentWithTab,
+        { key: "Mod-Shift-z", run: redo },
+      ]),
       // Listen for document changes and bubble them up to the main thread state
       EditorView.updateListener.of((update) => {
         if (update.docChanged && props.onDocChange) {
-          // Iterate over every individual edit in this transaction
+          const edits = [];
+
           update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
-            props.onDocChange({
+            edits.push({
               editStart: fromA,
-              editLen: toA - fromA, // How many characters were replaced/deleted
-              text: inserted.toString() // The new text being inserted
+              editLen: toA - fromA,
+              text: inserted.toString()
             });
           });
 
+          // Reverse the array so bottom-most edits process first
+          edits.reverse();
+
+          props.onDocChange(edits);
         }
       }),
     ];

@@ -22,7 +22,7 @@ export default function App() {
         // Push the initial code to the worker so their buffers match from frame 0
         compilerWorker.postMessage({
           type: 'SOURCE_EDIT',
-          payload: { editStart: 0, editLen: 0, text: sourceCode() }
+          payload: [{ editStart: 0, editLen: 0, text: sourceCode() }]
         });
       } else if (type === 'INIT_ERROR') {
         console.error("Worker failed to start:", payload);

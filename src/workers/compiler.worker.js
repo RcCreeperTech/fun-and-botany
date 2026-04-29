@@ -66,8 +66,12 @@ self.onmessage = async (e) => {
 
   switch (type) {
     case 'SOURCE_EDIT':
-      const { editStart, editLen, text } = payload;
-      sourceEdit(editStart, editLen, text)
+      const edits = payload;
+      // Apply all edits in the reversed order
+      for (const edit of edits) {
+        sourceEdit(edit.editStart, edit.editLen, edit.text);
+      }
+
       const tokenData = getTokens();
       if (tokenData.length > 0) {
         // Send the flat array back to the main thread
