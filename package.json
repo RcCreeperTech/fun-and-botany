@@ -29,6 +29,7 @@
     "codemirror": "^6.0.2",
     "npm": "^11.12.1",
     "solid": "^0.2.1",
-    "tailwindcss": "^4.2.2"
+    "tailwindcss": "^4.2.2",
+    "vanilla-colorful": "^0.7.2"
   }
 }

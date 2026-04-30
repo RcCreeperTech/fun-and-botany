@@ -62,7 +62,6 @@ export const appTheme = EditorView.theme({
   ".cm-sem-keyword": { color: "var(--color-purple-500)", fontWeight: "bold" },
   ".cm-sem-number": { color: "var(--color-success-fg)" },
   ".cm-sem-string": { color: "var(--color-success-fg)" },
-  ".cm-sem-color": { color: "var(--color-success-fg)", textDecoration: "underline" },
   ".cm-sem-boolean": { color: "var(--color-danger)" },
   ".cm-sem-operator": { color: "var(--color-text-subtle)" },
   ".cm-sem-punctuation": { color: "var(--color-text-subtle)" },
