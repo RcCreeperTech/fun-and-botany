@@ -4,6 +4,7 @@ import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, indentWithTab, history, historyKeymap, redo } from "@codemirror/commands";
 import { closeBrackets } from "@codemirror/autocomplete"
 import { indentUnit, foldGutter } from "@codemirror/language"
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { appTheme } from "./editorTheme";
 import { pilLanguage, updateSemanticTokens } from "./pilLanguage";
 
@@ -16,6 +17,7 @@ export default function CodeEditor(props) {
       appTheme,
       history(),
       lineNumbers(),
+      lintGutter(),
       foldGutter(),
       closeBrackets(),
       indentUnit.of("    "),
@@ -65,6 +67,20 @@ export default function CodeEditor(props) {
       });
     }
   })
+
+  createEffect(() => {
+    if (view && props.diagnostics) {
+      // Map to CM6 specific format
+      const cmDiagnostics = props.diagnostics.map(err => ({
+        from: err.offset,
+        to: err.offset + err.length,
+        severity: err.severity, // "error", "warning", or "info"
+        message: err.message,
+      }));
+
+      view.dispatch(setDiagnostics(view.state, cmDiagnostics));
+    }
+  });
 
   onCleanup(() => {
     if (view) view.destroy();

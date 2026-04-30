@@ -8,6 +8,7 @@ export default function App() {
   let compilerWorker;
   const [sourceCode, setSourceCode] = createSignal("// Write your procedural rules here\n");
   const [tokens, setTokens] = createSignal(null);
+  const [diagnostics, setDiagnostics] = createSignal([]);
 
   onMount(() => {
     compilerWorker = new Worker(
@@ -28,6 +29,8 @@ export default function App() {
         console.error("Worker failed to start:", payload);
       } else if (type === 'TOKENS_RESULT') {
         setTokens(payload)
+      } else if (type === 'DIAGNOSTICS_RESULT') {
+        setDiagnostics(payload)
       }
     };
   });
@@ -52,6 +55,7 @@ export default function App() {
             initialCode={sourceCode()}
             onDocChange={handleDocChange}
             tokens={tokens()}
+            diagnostics={diagnostics()}
           />
         </div>
 

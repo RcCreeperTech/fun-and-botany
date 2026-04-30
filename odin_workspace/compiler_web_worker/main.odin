@@ -8,6 +8,7 @@ import "core:log"
 Worker :: struct {
 	highligh_tokens: []compiler.Token,
 	source_buf:      [dynamic]u8,
+	ffi_diagnostics: [dynamic]FFI_Diagnostic,
 	semantic_tokens: [dynamic]Semantic_Token,
 	compiler:        ^compiler.Compiler,
 	ctx:             runtime.Context,
@@ -111,9 +112,42 @@ get_semantic_tokens :: proc() -> rawptr {
 	return out
 }
 
+FFI_Diagnostic :: struct #packed {
+    offset:  u32,
+    length:  u32,
+    msg_ptr: u32,
+    msg_len: u32,
+}
+
 @(export)
 get_diagnostics :: proc() -> rawptr {
-	unimplemented()
+	self := &g_worker
+	context = self.ctx
+
+    clear(&self.ffi_diagnostics)
+    for d in self.compiler.diagnostics.items {
+    	assert(d.span[0] != nil && d.span[1] != nil)
+        start, end := d.span[0], d.span[1]
+
+        base_addr := uintptr(&self.source_buf[0])
+        start_addr := uintptr(raw_data(start.raw))
+        offset := u32(start_addr - base_addr)
+        end_addr := uintptr(raw_data(end.raw)) + uintptr(len(end.raw))
+        length := u32(end_addr - start_addr)
+
+        msg := transmute(runtime.Raw_String)d.message
+
+        append(&self.ffi_diagnostics, FFI_Diagnostic{
+            offset  = offset,
+            length  = length,
+            msg_ptr = u32(uintptr(msg.data)),
+            msg_len = u32(msg.len),
+        })
+    }
+
+    out := ffi_out_var(runtime.Raw_Slice)
+	out^ = transmute(runtime.Raw_Slice)self.ffi_diagnostics[:]
+	return out
 }
 
 Semantic_TokenKind :: enum u8 {

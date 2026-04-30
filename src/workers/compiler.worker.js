@@ -60,6 +60,39 @@ function getTokens() {
   return outTokens
 }
 
+function getDiagnostics() {
+  const sliceStructPtr = bridge.exports.get_diagnostics();
+
+  const dataPtr = bridge.wmi.loadPtr(sliceStructPtr);
+  const arrayLen = bridge.wmi.loadInt(sliceStructPtr + bridge.wmi.pointerSize);
+
+  const diag_u32_size = 4;
+  const diagData = bridge.wmi.loadU32Array(
+    dataPtr,
+    arrayLen * diag_u32_size
+  );
+
+  let outDiagnostics = [];
+  for (let i = 0; i < diagData.length; i += diag_u32_size) {
+    const offset = diagData[i];
+    const length = diagData[i + 1];
+    const msgPtr = diagData[i + 2];
+    const msgLen = diagData[i + 3];
+
+    // Decode the string bytes directly from Wasm memory
+    const message = bridge.wmi.loadString(msgPtr, msgLen);
+
+    outDiagnostics.push({
+      offset: offset,
+      length: length,
+      message: message,
+      severity: "error",
+    });
+  }
+
+  return outDiagnostics;
+}
+
 self.onmessage = async (e) => {
   const { type, payload } = e.data;
   if (!bridge.initialized) return;
@@ -74,14 +107,17 @@ self.onmessage = async (e) => {
 
       const tokenData = getTokens();
       if (tokenData.length > 0) {
-        // Send the flat array back to the main thread
-        // We slice it to copy the data out of the Wasm memory buffer before the
-        // FFI arena gets cleared on the next call.
         postMessage({
           type: 'TOKENS_RESULT',
           payload: tokenData.slice()
         });
       }
+
+      const diagnosticData = getDiagnostics();
+      postMessage({
+        type: 'DIAGNOSTICS_RESULT',
+        payload: diagnosticData.slice()
+      });
       break;
     case 'GET_TOKENS':
       break;

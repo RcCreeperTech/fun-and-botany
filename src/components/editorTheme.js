@@ -54,6 +54,38 @@ export const appTheme = EditorView.theme({
   ".cm-lineNumbers .cm-gutterElement": {
     padding: "0 16px 0 8px",
   },
+  ".cm-tooltip ": {
+    backgroundColor: "var(--color-surface)",
+    border: "1px solid var(--color-border)",
+    color: "var(--color-text-subtle)",
+    borderRadius: "6px",
+    boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.5)",
+  },
+  ".cm-tooltip-lint": {
+    backgroundColor: "transparent",
+    border: "none",
+    padding: "0",
+    margin: "0",
+  },
+  ".cm-diagnostic-error": {
+    borderLeft: "4px solid var(--color-danger)",
+    padding: "6px 10px",
+    marginTop: "2px",
+    marginBottom: "2px",
+  },
+  ".cm-diagnosticText": {
+    fontSize: "13px",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    lineHeight: "1.4",
+  },
+  ".cm-tooltip-arrow:before": {
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent"
+  },
+  ".cm-tooltip-arrow:after": {
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent"
+  },
   ".cm-sem-variable": { color: "var(--color-text)" },
   ".cm-sem-function": { color: "var(--color-accent-fg)" },
   ".cm-sem-constant": { color: "var(--color-warning-fg)" },
