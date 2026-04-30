@@ -50,7 +50,7 @@ export default function App() {
     <>
       <div class="bg-background flex flex-row w-screen h-screen" >
 
-        <div class="flex-2 w-full h-full z-20 flex flex-col">
+        <div class="w-2/5 min-w-0 h-full z-20 flex flex-col">
           <CodeEditor
             initialCode={sourceCode()}
             onDocChange={handleDocChange}
@@ -62,7 +62,7 @@ export default function App() {
         <canvas
           ref={canvasRef}
           id="gl-canvas"
-          class="flex-3 w-full h-full block inset-0 z-10"
+          class="w-3/5 min-w-0 h-full block inset-0 z-10"
           width={0}
           height={0}
         />
