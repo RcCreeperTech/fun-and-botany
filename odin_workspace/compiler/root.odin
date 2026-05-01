@@ -100,6 +100,14 @@ analyze_program :: proc(self: ^Compiler, source: string) {
 	sema_check_program(self)
 }
 
+emit_bytecode :: proc(self: ^Compiler) -> (vm.Program, bool) {
+	if self.ast == nil do return {}, false
+	if len(self.diagnostics.items) != 0 { return {}, false }
+	program := lower_ast(self, self.ast)
+
+	return program, true
+}
+
 compiler_error :: proc(diagnostics: ^DiagnosticList, subsystem: CompilerSubsystem, span: SrcSpan, msg: string, args: ..any) {
 	diagnostic := Diagnostic{
 		subsystem = subsystem,

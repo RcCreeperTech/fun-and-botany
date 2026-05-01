@@ -1,17 +1,20 @@
 package compiler_web_worker
 
+import "core:bytes"
+import "core:encoding/json"
 import "../compiler"
 import "base:runtime"
 import "core:log"
 
 
 Worker :: struct {
-	highligh_tokens: []compiler.Token,
-	source_buf:      [dynamic]u8,
-	ffi_diagnostics: [dynamic]FFI_Diagnostic,
-	semantic_tokens: [dynamic]Semantic_Token,
-	compiler:        ^compiler.Compiler,
-	ctx:             runtime.Context,
+	highligh_tokens:    []compiler.Token,
+	source_buf:         [dynamic]u8,
+	ffi_program_buffer: []u8,
+	ffi_diagnostics:    [dynamic]FFI_Diagnostic,
+	semantic_tokens:    [dynamic]Semantic_Token,
+	compiler:           ^compiler.Compiler,
+	ctx:                runtime.Context,
 }
 
 g_worker: Worker
@@ -30,6 +33,9 @@ main :: proc() {
 	self := &g_worker
 	self.compiler = compiler.make_compiler()
 	self.ctx = context
+
+	self.ffi_diagnostics = make([dynamic]FFI_Diagnostic)
+	self.semantic_tokens = make([dynamic]Semantic_Token)
 }
 
 re_analyze :: proc(self: ^Worker) {
@@ -109,6 +115,39 @@ get_semantic_tokens :: proc() -> rawptr {
 
 	out := ffi_out_var(runtime.Raw_Slice)
 	out^ = transmute(runtime.Raw_Slice)self.semantic_tokens[:]
+	return out
+}
+
+@(export)
+can_compile_program :: proc() -> bool {
+	self := &g_worker
+	context = self.ctx
+
+	if len(self.compiler.diagnostics.items) > 0 do return false
+	if self.compiler.ast == nil do return false
+	// TODO: Walk the whole ast and check for error nodes.
+	return true
+}
+
+@(export)
+get_compiled_bytecode :: proc() -> rawptr {
+	self := &g_worker
+	context = self.ctx
+
+	program, ok := compiler.emit_bytecode(self.compiler)
+	assert(ok, "The user should have checked that the ast was valid")
+
+	delete(self.ffi_program_buffer)
+
+	err: json.Marshal_Error
+	self.ffi_program_buffer, err = json.marshal(program)
+	if err != nil {
+		log.error("Unable to marshal program", err)
+	}
+
+
+	out := ffi_out_var(runtime.Raw_Slice)
+	out^ = transmute(runtime.Raw_Slice)self.ffi_program_buffer
 	return out
 }
 

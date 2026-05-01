@@ -61,7 +61,7 @@ function getTokens() {
 }
 
 function getDiagnostics() {
-  const sliceStructPtr = bridge.exports.get_diagnostics();
+  const sliceStructPtr = bridge.exports.get_diagnostics(bridge.odin_ctx);
 
   const dataPtr = bridge.wmi.loadPtr(sliceStructPtr);
   const arrayLen = bridge.wmi.loadInt(sliceStructPtr + bridge.wmi.pointerSize);
@@ -98,7 +98,7 @@ self.onmessage = async (e) => {
   if (!bridge.initialized) return;
 
   switch (type) {
-    case 'SOURCE_EDIT':
+    case 'SOURCE_EDIT': {
       const edits = payload;
       // Apply all edits in the reversed order
       for (const edit of edits) {
@@ -118,18 +118,19 @@ self.onmessage = async (e) => {
         type: 'DIAGNOSTICS_RESULT',
         payload: diagnosticData.slice()
       });
+    }
       break;
-    case 'GET_TOKENS':
-      break;
-    case 'COMPILE':
+    case 'COMPILE': {
+      if (!bridge.exports.can_compile_program(bridge.odin_ctx)) {
+        postMessage({ type: 'COMPILE_ERROR', payload: "Compilation failed." });
+        return;
+      }
 
-      // Future Phase 3 logic:
-      // 1. Allocate memory for payload.sourceCode via Wasm export
-      // 2. wmi.storeString(ptr, payload.sourceCode)
-      // 3. wasmInstance.exports.compile_source(ptr, len, odinCtx)
-      // 4. Read results back using wmi
-
-      console.log("Worker received source code snippet.");
+      const bytecodeSlicePtr = bridge.exports.get_compiled_bytecode(bridge.odin_ctx);
+      const bytecode = bridge.wmi.loadFfiString(bytecodeSlicePtr);
+      const parsedProgram = JSON.parse(bytecode);
+      console.log("Compiled Program AST:", parsedProgram);
+    }
       break;
   }
 };
