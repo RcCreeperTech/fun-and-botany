@@ -20,7 +20,7 @@ vm_test_push_pop :: proc(t: ^testing.T) {
 
 	vm: VM
 	err := run(&vm, program)
-	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, err, nil)
 	v := sm.pop_back(&vm.stack)
 	testing.expect_value(t, v, f32(123))
 }
@@ -59,7 +59,7 @@ vm_test_add :: proc(t: ^testing.T) {
 
 	vm: VM
 	err := run(&vm, program)
-	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, err, nil)
 	v := sm.pop_back(&vm.stack)
 	testing.expect_value(t, v, f32(69))
 }
@@ -80,7 +80,7 @@ vm_test_bad_add :: proc(t: ^testing.T) {
 
 	vm: VM
 	err := run(&vm, program)
-	testing.expect_value(t, err, Error.Argument_Mismatch)
+	testing.expect_value(t, err, Argument_Mismatch_Error{.Add, typeid_of(bool), typeid_of(f32)})
 }
 
 @(test)
@@ -99,12 +99,11 @@ vm_test_sub_float :: proc(t: ^testing.T) {
 
 	vm: VM
 	err := run(&vm, program)
-	testing.expect_value(t, err, Error.None)
+	testing.expect_value(t, err, nil)
 	v := sm.pop_back(&vm.stack)
 	testing.expect_value(t, v, f32(1))
 }
 
-// TODO: In order to restore this test, A distinction must be made between jump and call
 @(test)
 vm_test_overflow :: proc(t: ^testing.T) {
 	assembler: Assembler
@@ -117,6 +116,8 @@ vm_test_overflow :: proc(t: ^testing.T) {
 		end
 	`)
 	testing.expect(t, asm_err == nil)
+
+	dump_program(program)
 
 	vm: VM
 	err := run(&vm, program)

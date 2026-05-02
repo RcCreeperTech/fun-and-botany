@@ -571,33 +571,36 @@ rgba_u32_to_color :: proc(c: u32) -> Color {
 dump_program :: proc(p: Program) {
 	sb := strings.builder_make()
 	defer strings.builder_destroy(&sb)
-	fmt.sbprintln(&sb)
-	fmt.sbprintln(&sb, "// Program Output")
-	fmt.sbprintln(&sb, "program := Program {")
-	fmt.sbprintln(&sb, "    blocks = {")
+	dump_program_sb(&sb, p)
+	log.debug(strings.to_string(sb))
+}
+
+dump_program_sb :: proc(sb: ^strings.Builder, p: Program) {
+	fmt.sbprintln(sb)
+	fmt.sbprintln(sb, "// Program Output")
+	fmt.sbprintln(sb, "program := Program {")
+	fmt.sbprintln(sb, "    blocks = {")
 	for block, i in p.blocks {
-		fmt.sbprintfln(&sb, "        {{ // %v", i)
+		fmt.sbprintfln(sb, "        {{ // %v", i)
 		for inst in block {
-			fmt.sbprint(&sb, "            {")
+			fmt.sbprint(sb, "            {")
 			if inst.precondition != .None {
-				fmt.sbprintf(&sb, " precondition = .%v, ", inst.precondition)
+				fmt.sbprintf(sb, " precondition = .%v, ", inst.precondition)
 			}
-			fmt.sbprintf(&sb, " op = .%v, ", inst.op)
+			fmt.sbprintf(sb, " op = .%v, ", inst.op)
 			if inst.imm[0] != nil || inst.imm[1] != nil {
-				fmt.sbprint(&sb, " imm = { ")
+				fmt.sbprint(sb, " imm = { ")
 				for val in inst.imm {
-					print_vm_value(&sb, val)
+					print_vm_value(sb, val)
 				}
-				fmt.sbprint(&sb, "} ")
+				fmt.sbprint(sb, "} ")
 			}
-			fmt.sbprintln(&sb, "},")
+			fmt.sbprintln(sb, "},")
 		}
-		fmt.sbprintln(&sb, "        },")
+		fmt.sbprintln(sb, "        },")
 	}
-	fmt.sbprintln(&sb, "    }")
-	fmt.sbprintln(&sb, "}")
-	out := strings.to_string(sb)
-	log.info(out)
+	fmt.sbprintln(sb, "    }")
+	fmt.sbprintln(sb, "}")
 
 	print_vm_value :: proc(sb: ^strings.Builder, val: Value) {
 		switch v in val {

@@ -1,11 +1,12 @@
 package compiler_web_worker
 
-import "core:bytes"
+import "core:strings"
 import "core:encoding/json"
 import "../compiler"
 import "base:runtime"
 import "core:log"
 
+import "../vm"
 
 Worker :: struct {
 	highligh_tokens:    []compiler.Token,
@@ -36,10 +37,16 @@ main :: proc() {
 
 	self.ffi_diagnostics = make([dynamic]FFI_Diagnostic)
 	self.semantic_tokens = make([dynamic]Semantic_Token)
+
+	vm.init_json_encoders()
 }
 
 re_analyze :: proc(self: ^Worker) {
 	context = self.ctx
+
+	delete(self.ffi_program_buffer) // Re-analysis invalidates the program output
+	self.ffi_program_buffer = nil
+
 	compiler.reset_compiler(self.compiler)
 	source := cast(string)self.source_buf[:]
 	compiler.analyze_program(self.compiler, source) // Re-creates the AST and generates new diagnostics
@@ -134,16 +141,24 @@ get_compiled_bytecode :: proc() -> rawptr {
 	self := &g_worker
 	context = self.ctx
 
-	program, ok := compiler.emit_bytecode(self.compiler)
-	assert(ok, "The user should have checked that the ast was valid")
+	if self.ffi_program_buffer == nil {
+		program, ok := compiler.emit_bytecode(self.compiler)
+		assert(ok, "The user should have checked that the ast was valid")
 
-	delete(self.ffi_program_buffer)
+		sb := strings.builder_make()
+		defer strings.builder_destroy(&sb)
+		vm.dump_program_sb(&sb, program)
+		log.debug("Worker got", strings.to_string(sb))
 
-	err: json.Marshal_Error
-	self.ffi_program_buffer, err = json.marshal(program)
-	if err != nil {
-		log.error("Unable to marshal program", err)
+		err: json.Marshal_Error
+		self.ffi_program_buffer, err = json.marshal(program, {
+			use_enum_names = true,
+		})
+		if err != nil {
+			log.error("Unable to marshal program", err)
+		}
 	}
+
 
 
 	out := ffi_out_var(runtime.Raw_Slice)
@@ -165,14 +180,26 @@ get_diagnostics :: proc() -> rawptr {
 
     clear(&self.ffi_diagnostics)
     for d in self.compiler.diagnostics.items {
-    	assert(d.span[0] != nil && d.span[1] != nil)
+    	if(d.span[0] == nil && d.span[1] == nil) {
+     		log.panicf("Got an invalid span for '%v'", d.message)
+     	}
         start, end := d.span[0], d.span[1]
 
-        base_addr := uintptr(&self.source_buf[0])
+        base_addr := uintptr(raw_data(self.source_buf))
         start_addr := uintptr(raw_data(start.raw))
-        offset := u32(start_addr - base_addr)
         end_addr := uintptr(raw_data(end.raw)) + uintptr(len(end.raw))
-        length := u32(end_addr - start_addr)
+
+        offset: u32
+        if start_addr >= base_addr {
+            offset = u32(start_addr - base_addr)
+        } else {
+            offset = u32(len(self.source_buf))
+        }
+
+        length: u32
+        if end_addr >= start_addr {
+            length = u32(end_addr - start_addr)
+        }
 
         msg := transmute(runtime.Raw_String)d.message
 

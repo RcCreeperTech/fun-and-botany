@@ -167,4 +167,15 @@ export default class OdinBridge {
     this.prevTimeStamp = currTimeStamp;
   }
 
+  loadProgram(bytecode) {
+    const len = bytecode.length;
+    const ptr = this.exports.ffi_alloc_buffer(len, this.odin_ctx);
+    console.log("loadProgram", JSON.parse(bytecode), ptr, len)
+    this.wmi.storeString(ptr, bytecode)
+
+    this.exports.load_program_and_restart(ptr, len, this.odin_ctx);
+
+    this.exports.ffi_free_buffer(ptr, this.odin_ctx);
+  }
+
 }

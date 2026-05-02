@@ -3,34 +3,8 @@ package engine
 
 import "base:runtime"
 import "core:fmt"
-import "core:mem"
 import "core:reflect"
 import "core:strings"
-
-// Used for FFI with wasm.
-@(private)
-g_ffi_allocator: mem.Allocator
-@(private)
-g_ffi_arena: mem.Arena
-@(private)
-g_ffi_buf: [1024]u8
-
-@(private, init)
-ffi_init :: proc "contextless" () {
-	// Set up a shared space for ffi results
-	for &b in g_ffi_buf do b = 0
-	// Not using mem procedures because they are not contextless
-	g_ffi_arena.data = g_ffi_buf[:]
-	g_ffi_allocator = {
-		procedure = mem.arena_allocator_proc,
-		data      = &g_ffi_arena,
-	}
-}
-
-ffi_out_var :: proc($T: typeid) -> ^T {
-	free_all(g_ffi_allocator)
-	return new(string)
-}
 
 @(export)
 get_sim_state_ptr :: proc() -> rawptr {return &g_app_state}

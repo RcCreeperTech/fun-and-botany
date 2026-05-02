@@ -29,9 +29,11 @@ export default function App() {
       } else if (type === 'INIT_ERROR') {
         console.error("Worker failed to start:", payload);
       } else if (type === 'TOKENS_RESULT') {
-        setTokens(payload)
+        setTokens(payload);
       } else if (type === 'DIAGNOSTICS_RESULT') {
-        setDiagnostics(payload)
+        setDiagnostics(payload);
+      } else if (type === 'COMPILE_SUCCESS') {
+        bridge.loadProgram(payload);
       }
     };
   });

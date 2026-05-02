@@ -127,9 +127,19 @@ self.onmessage = async (e) => {
       }
 
       const bytecodeSlicePtr = bridge.exports.get_compiled_bytecode(bridge.odin_ctx);
+
+      if (bytecodeSlicePtr === 0) {
+        postMessage({ type: 'COMPILE_ERROR', payload: "Program is empty or invalid." });
+        return;
+      }
+
       const bytecode = bridge.wmi.loadFfiString(bytecodeSlicePtr);
-      const parsedProgram = JSON.parse(bytecode);
-      console.log("Compiled Program AST:", parsedProgram);
+
+      postMessage({
+        type: 'COMPILE_SUCCESS',
+        payload: bytecode.slice()
+      });
+
     }
       break;
   }
