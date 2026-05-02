@@ -14,7 +14,7 @@ Type_Class :: enum {
 
 Sema_Context :: struct {
 	locals:      map[string]int,
-	local_types: map[string]Type_Class, 
+	local_types: map[string]Type_Class,
 	local_count: int,
 	inside_state_function: bool
 }
@@ -33,8 +33,14 @@ sema_resolve_globals :: proc(self: ^Compiler) {
 	for def in self.ast.defs {
 
 		if def_has_annotation(def, "state") {
-			func, is_func := def.derived_def.(^AST_Function_Def)
-			if !is_func {
+			func: ^AST_Function_Def
+			switch d in def.derived_def{
+			case nil:
+				sema_error(self, def.span, "State annotation must be attached to a valid function def.")
+				continue
+			case ^AST_Function_Def:
+				func = d
+			case ^AST_Constant_Def:
 				sema_error(self, def.span, "Cannot register a constant as a state.")
 				continue
 			}
@@ -59,8 +65,14 @@ sema_resolve_globals :: proc(self: ^Compiler) {
 		}
 
 		if def_has_annotation(def, "entrypoint") {
-			func, is_func := def.derived_def.(^AST_Function_Def)
-			if !is_func {
+			func: ^AST_Function_Def
+			switch d in def.derived_def{
+			case nil:
+				sema_error(self, def.span, "Entrypoint annotation must be attached to a valid function def.")
+				continue
+			case ^AST_Function_Def:
+				func = d
+			case ^AST_Constant_Def:
 				sema_error(self, def.span, "Cannot make a constant the entrypoint of the program.")
 				continue
 			}
@@ -84,8 +96,14 @@ sema_resolve_globals :: proc(self: ^Compiler) {
 		}
 
 		if def_has_annotation(def, "terminal") {
-			func, is_func := def.derived_def.(^AST_Function_Def)
-			if !is_func {
+			func: ^AST_Function_Def
+			switch d in def.derived_def{
+			case nil:
+				sema_error(self, def.span, "Terminal annotation must be attached to a valid function def.")
+				continue
+			case ^AST_Function_Def:
+				func = d
+			case ^AST_Constant_Def:
 				sema_error(self, def.span, "Cannot make a constant the termination point of the program.")
 				continue
 			}

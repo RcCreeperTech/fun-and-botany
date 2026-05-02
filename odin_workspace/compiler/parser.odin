@@ -68,6 +68,7 @@ parse_top_level_def :: proc(self: ^Parser) -> ^AST_Top_Level_Def {
 			parser_error(self, annotation.span, "Annotation is not attached to a top level def")
 		}
 		dummy := new_ast_node(AST_Top_Level_Def, self.allocator)
+		dummy.span = annotation.span
 		dummy.annotation = annotation
 		dummy.has_errors = true
 		return dummy
@@ -84,6 +85,7 @@ parse_top_level_def :: proc(self: ^Parser) -> ^AST_Top_Level_Def {
 		bad_token := parser_peek(self)
 		parser_error(self, bad_token, "Encountered invalid token '%v', when trying to parse def '%v'", bad_token.raw, ident.name)
 		dummy := new_ast_node(AST_Top_Level_Def, self.allocator)
+		dummy.span = start
 		dummy.annotation = annotation
 		dummy.has_errors = true
 		return dummy

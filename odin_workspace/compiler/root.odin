@@ -21,6 +21,7 @@ Compiler :: struct{
 		ast:         Dynamic_Arena,
 		blocks:      Dynamic_Arena,
 		diagnostics: Dynamic_Arena,
+		program:     Dynamic_Arena,
 	}
 }
 
@@ -48,6 +49,7 @@ make_compiler :: proc(allocator := context.allocator, loc := #caller_location) -
 	dynamic_arena_init(&self.arenas.ast, self.allocator, self.allocator)
 	dynamic_arena_init(&self.arenas.blocks, self.allocator, self.allocator)
 	dynamic_arena_init(&self.arenas.diagnostics, self.allocator, self.allocator)
+	dynamic_arena_init(&self.arenas.program, self.allocator, self.allocator)
 
 	self.diagnostics  = make_diagnostic_list(&self.arenas.diagnostics)
 	self.state_table  = make(map[string]vm.Label, self.allocator)
@@ -60,6 +62,7 @@ delete_compiler :: proc(self: ^Compiler) {
 	dynamic_arena_destroy(&self.arenas.ast)
 	dynamic_arena_destroy(&self.arenas.blocks)
 	dynamic_arena_destroy(&self.arenas.diagnostics)
+	dynamic_arena_destroy(&self.arenas.program)
 	delete(self.state_table)
 	delete(self.symbol_table)
 	delete(self.tokens)
@@ -71,6 +74,7 @@ reset_compiler :: proc(self: ^Compiler) {
 	dynamic_arena_reset(&self.arenas.ast)
 	dynamic_arena_reset(&self.arenas.blocks)
 	dynamic_arena_reset(&self.arenas.diagnostics)
+	dynamic_arena_reset(&self.arenas.program)
 
 	clear(&self.state_table)
 	clear(&self.symbol_table)
