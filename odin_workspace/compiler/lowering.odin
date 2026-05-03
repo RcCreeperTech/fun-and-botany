@@ -249,14 +249,14 @@ lower_expr :: proc(
 // Helper to map property names to VM parameter enums
 map_string_to_vm_param :: proc(name: string) -> vm.Param {
 	switch name {
-	case "state":       return .State
-	case "thickness":   return .Thickness
-	case "length":      return .Length
-	case "color":       return .Color
-	case "growth_rate": return .Growth_Rate
-	case "stiffness":   return .Stiffness
-	case "density":     return .Density
+	case "state":              return .State
+	case "thickness":          return .Thickness
+	case "length":             return .Length
+	case "color":              return .Color
+	case "growth_rate":        return .Growth_Rate
+	case "lignen":             return .Lignen
 	case "interpolate_colors": return .Interpolate_Colors
+	case "depth":              return .Depth
 	}
 	return .State // Fallback, SEMA should prevent this
 }

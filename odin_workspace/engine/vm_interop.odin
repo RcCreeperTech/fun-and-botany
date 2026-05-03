@@ -32,12 +32,12 @@ vm_get_param :: proc(user_context: any, param: vm.Param) -> (v: vm.Value, err: v
 		return element.color, nil
 	case .Growth_Rate:
 		return element.growth_rate, nil
-	case .Stiffness:
-		return element.stiffness, nil
-	case .Density:
-		return element.density, nil
+	case .Lignen:
+		return element.lignen, nil
 	case .Interpolate_Colors:
 		return .interpolate_colors in element.flags, nil
+	case .Depth:
+		return f32(element.depth), nil
 	}
 	return nil, .Unknown_Parameter_Access
 }
@@ -61,16 +61,13 @@ vm_set_param :: proc(user_context: any, param: vm.Param, value: vm.Value) -> vm.
 		v, ok := value.(Color)
 		if !ok do return .Parameter_Type_Mistmatch
         element.target_color = v
-	case .Growth_Rate:
+	case .Growth_Rate, .Depth:
 		return .Readonly_Parameter
-	case .Stiffness:
+	case .Lignen:
 		v, ok := value.(f32)
 		if !ok do return .Parameter_Type_Mistmatch
-        element.target_stiffness = v
-	case .Density:
-		v, ok := value.(f32)
-		if !ok do return .Parameter_Type_Mistmatch
-        element.target_density = v
+        element.lignen = v
+        element.lignen_changed = true
 	case .Interpolate_Colors:
 		v, ok := value.(bool)
 		if !ok do return .Parameter_Type_Mistmatch

@@ -240,9 +240,9 @@ Param :: enum u8 {
 	Length,
 	Color,
 	Growth_Rate,
-	Stiffness,
-	Density,
+	Lignen,
 	Interpolate_Colors,
+	Depth,
 }
 
 run :: proc(vm: ^VM, program: Program, user_context: any = nil) -> (err: VM_Error) {

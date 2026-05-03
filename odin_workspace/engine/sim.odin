@@ -17,15 +17,15 @@ SIM_BASELINE_GROWTH_RATE :: 0.5
 SIM_END_GROWTH_RATE :: 0.01
 SIM_CELL_AGING_RATE :: 0.7
 SIM_PIXELS_PER_METER :: 100
+SIM_GRAVITY :: 1.6
 
 TissueMaterial :: struct {
 	density, freq, damping: f32,
 }
-
 WOOD_TISSUE :: TissueMaterial{7, 28, 1}
-STEM_TISSUE :: TissueMaterial{1.5, 5, 0.675}
-LEAF_TISSUE :: TissueMaterial{0.2, 2, 0.5}
-PETAL_TISSUE :: TissueMaterial{0.05, 1.25, 0.33}
+STEM_TISSUE :: TissueMaterial{0.5, 5, 0.675}
+LEAF_TISSUE :: TissueMaterial{0.1, 2, 0.5}
+PETAL_TISSUE :: TissueMaterial{0.01, 1.25, 0.33}
 
 Matrix3 :: la.Matrix3x3f32
 Vec2 :: [2]f32
@@ -47,13 +47,11 @@ Sim_Element :: struct {
 	target_thickness:        f32,
 	target_length:           f32,
 	target_color:            Color,
-	target_stiffness:        f32,
-	target_density:          f32,
 	thickness:               f32,
 	length:                  f32,
 	color:                   Color,
-	stiffness:               f32,
-	density:                 f32,
+	lignen_changed:          bool,
+	lignen:                  f32,
 	growth_rate:             f32,
 	depth:                   u8,
 	vm_entrypoint:           vm.Label,
@@ -83,7 +81,7 @@ SimState :: struct {
 sim_init :: proc(self: ^SimState, program: vm.Program) {
 	{ 	// Create the physics world
 		world_def := b2.DefaultWorldDef()
-		world_def.gravity = {0, -9.81}
+		world_def.gravity = {0, -SIM_GRAVITY}
 		world_def.enableSleep = false
 		world_def.enableContinuous = false
 		self.physics_world = b2.CreateWorld(world_def)
@@ -148,6 +146,13 @@ sim_tick_cells :: proc(self: ^SimState, dt: f32) {
 		e.length = exp_decay(e.length, e.target_length, e.growth_rate, dt)
 		e.color = exp_decay(e.color, e.target_color, SIM_DYE_RATE, dt)
 
+		tissue := sample_tissue_params(e.lignen)
+		if e.lignen_changed {
+			b2.Joint_SetConstraintTuning(e.joint, tissue.freq, tissue.damping)
+			b2.Shape_SetDensity(e.shape, tissue.density, true)
+			e.lignen_changed = false
+		}
+
 		capsule := b2.Capsule{0, {0, e.length}, e.thickness}
 		b2.Shape_SetCapsule(e.shape, capsule)
 		b2.Body_ApplyMassFromShapes(e.body)
@@ -193,6 +198,8 @@ sim_element_spawn :: proc(
 		child_elem.target_color = parent.target_color
 		child_elem.color = parent.color
 		child_elem.flags = parent.flags
+		child_elem.lignen = parent.lignen
+		child_elem.lignen_changed = true
 	} else {
 		// Root element attaches to the ground
 		parent_body = self.ground
@@ -205,6 +212,7 @@ sim_element_spawn :: proc(
 		child_elem.target_thickness = 0.4
 		child_elem.target_color = DARKGREEN
 		child_elem.color = DARKGREEN
+		child_elem.lignen = 1.0
 	}
 
 	// Physics setup
@@ -502,4 +510,40 @@ setup_box2d_debug_draw_vtable :: proc(self: ^SimState) {
 		c.a = DEBUG_DRAW_OPACITY
 		rg.draw_circle(&app.r, center, radius, color = c)
 	}
+}
+
+@(rodata)
+tissue_lut := []TissueMaterial{
+		PETAL_TISSUE,
+		LEAF_TISSUE,
+		STEM_TISSUE,
+		WOOD_TISSUE,
+}
+sample_tissue_params :: proc(lignen: f32) -> TissueMaterial {
+	N := len(tissue_lut)
+	if N == 0 do return {}
+	if N == 1 do return tissue_lut[0]
+
+	sample := clamp(lignen, 0.0, 1.0)
+	if sample == 1.0 {
+		return tissue_lut[N - 1]
+	}
+	scaled_sample := sample * f32(N - 1)
+
+	bin_idx := int(scaled_sample)
+	if bin_idx >= N - 1 {
+		return tissue_lut[N - 1]
+	}
+
+	t := scaled_sample - f32(bin_idx)
+
+	mat_a := tissue_lut[bin_idx]
+	mat_b := tissue_lut[bin_idx + 1]
+
+	return TissueMaterial{
+		density = math.lerp(mat_a.density, mat_b.density, t),
+		freq    = math.lerp(mat_a.freq, mat_b.freq, t),
+		damping = math.lerp(mat_a.damping, mat_b.damping, t),
+	}
+
 }

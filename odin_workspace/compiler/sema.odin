@@ -379,7 +379,24 @@ sema_resolve_expr_type :: proc(self: ^Compiler, ctx: ^Sema_Context, expr: ^AST_E
 	return .Unknown
 }
 
-validate_property_access :: proc(self: ^Compiler, ctx: ^Sema_Context, access: ^AST_Prop_Access_Expr, span: SrcSpan, action: enum{read, write}) {
+AccessFlag :: enum { read, write }
+PropertyMetadata :: bit_set[AccessFlag]
+ACCESS_ALL :: bit_set[AccessFlag]{.read, .write}
+get_property_meta :: proc(property: string) -> (PropertyMetadata, bool) {
+	switch property {
+	case "state":              return ACCESS_ALL, true
+	case "thickness":          return ACCESS_ALL, true
+	case "length":             return ACCESS_ALL, true
+	case "color":              return ACCESS_ALL, true
+	case "growth_rate":        return { .read }, true
+	case "interpolate_colors": return ACCESS_ALL, true
+	case "lignen":             return ACCESS_ALL, true
+	case "depth":              return { .read }, true
+	case:                      return {}, false
+	}
+}
+
+validate_property_access :: proc(self: ^Compiler, ctx: ^Sema_Context, access: ^AST_Prop_Access_Expr, span: SrcSpan, action: AccessFlag) {
 	if e, is_ident := access.entity.derived_expr.(^AST_Identifier); is_ident && e.name == "cell" {
 		if !ctx.inside_state_function {
 			action := "modified" if action == .write else "accessed"
@@ -390,11 +407,22 @@ validate_property_access :: proc(self: ^Compiler, ctx: ^Sema_Context, access: ^A
 			sema_error(self, span, "Missing parameter: State function must have a 'cell' parameter to %s its properties.", action)
 		}
 
-		switch access.property.name {
-		case "state", "thickness", "length", "color", "growth_rate", "stiffness", "density", "interpolate_colors":
-		case:
+		permisions, found := get_property_meta(access.property.name)
+		if !found {
 			action := "modify" if action == .write else "access"
 			sema_error(self, span, "Unable to %s unknown property %s", action, access.property.name)
+		} else if action == .read && .read not_in permisions {
+			sema_error(self, span, "Cannot access property %s of entity %s, %s is write-only.",
+				access.property.name,
+				span_to_string(access.entity.span),
+				access.property.name,
+			)
+		} else if action == .write && .write not_in permisions {
+			sema_error(self, span, "Cannot modify property %s of entity %s, %s is read-only.",
+				access.property.name,
+				span_to_string(access.entity.span),
+				access.property.name,
+			)
 		}
 
 	} else {
