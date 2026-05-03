@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup } from "solid-js";
+import { createSignal, onMount, onCleanup, createEffect } from "solid-js";
 import { useSimulationContext } from "./context/SimulationContext";
 import CodeEditor from "./components/CodeEditor";
 
@@ -10,6 +10,34 @@ export default function App() {
   const [tokens, setTokens] = createSignal(null);
   const [diagnostics, setDiagnostics] = createSignal([]);
   const hasErrors = () => diagnostics().length > 0;
+  const [isEditorCollapsed, setIsEditorCollapsed] = createSignal(false);
+  const [isIdle, setIsIdle] = createSignal(false);
+  let idleTimeoutId;
+
+  function wakeUpUI() {
+    setIsIdle(false);
+    clearTimeout(idleTimeoutId);
+
+    if (isEditorCollapsed()) {
+      idleTimeoutId = setTimeout(() => {
+        setIsIdle(true);
+      }, 2500);
+    }
+  };
+
+  // Re-evaluate the timer whenever the user explicitly clicks the toggle button
+  createEffect(() => { wakeUpUI(); });
+
+  onMount(() => {
+    window.addEventListener("mousemove", wakeUpUI);
+    window.addEventListener("keydown", wakeUpUI);
+  });
+
+  onCleanup(() => {
+    window.removeEventListener("mousemove", wakeUpUI);
+    window.removeEventListener("keydown", wakeUpUI);
+    clearTimeout(idleTimeoutId);
+  });
 
   onMount(() => {
     compilerWorker = new Worker(
@@ -40,7 +68,7 @@ export default function App() {
 
   onCleanup(() => { if (compilerWorker) compilerWorker.terminate(); });
 
-  const handleDocChange = (edit) => {
+  function handleDocChange(edit) {
     if (compilerWorker) {
       compilerWorker.postMessage({
         type: 'SOURCE_EDIT',
@@ -63,10 +91,29 @@ export default function App() {
 
   return (
     <>
-      <div class="bg-background flex flex-row w-screen h-screen" >
-
-        <div class="w-2/5 min-w-0 h-full z-20 flex flex-col relative">
+      <div
+        class={`
+          bg-background flex flex-row w-screen h-screen relative overflow-hidden
+          ${isIdle() && isEditorCollapsed() ? "cursor-none" : ""}
+          `}
+      >
+        <PanelToggle
+          isIdle={isIdle()}
+          isCollapsed={isEditorCollapsed()}
+          onToggle={() => setIsEditorCollapsed(!isEditorCollapsed())}
+        />
+        <div
+          class={`
+            h-full z-20 flex flex-col relative overflow-hidden
+            transition-[width] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+            ${isEditorCollapsed() ? "w-0 border-r-0" : "w-[40%] border-r border-gray-800"}
+            `}
+        >
           <Toast setRef={(api) => toastApi = api} />
+          <div
+            class={`w-full h-8 bg-surface-raised`}
+          >
+          </div>
           <CodeEditor
             initialCode={sourceCode()}
             onDocChange={handleDocChange}
@@ -78,13 +125,16 @@ export default function App() {
             hasErrors={hasErrors()}
             onClick={handleCompileClick}
           />
-
         </div>
 
         <canvas
           ref={canvasRef}
           id="gl-canvas"
-          class="w-3/5 min-w-0 h-full block inset-0 z-10"
+          class={`
+            min-w-0 h-full block inset-0 z-10 transition-[width]
+            duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+            ${isEditorCollapsed() ? "w-full" : "w-[60%]"}
+            `}
           width={0}
           height={0}
         />
@@ -135,8 +185,13 @@ function CompileButton(props) {
   return (
     <button
       onClick={props.onClick}
-      class={`absolute bottom-6 right-6 z-50 w-10 h-10 text-white rounded-full shadow-lg shadow-black/40 flex items-center justify-center transition-colors duration-300 hover:scale-105 active:scale-95 cursor-pointer ${props.hasErrors ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"
-        }`}
+      class={`
+        absolute bottom-6 right-6 z-50 w-10 h-10 text-white rounded-full
+        shadow-lg shadow-black/40 flex items-center justify-center
+        transition-colors duration-300 hover:scale-105 active:scale-95
+        cursor-pointer
+        ${props.hasErrors ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}
+        `}
       title={props.hasErrors ? "Errors found" : "Compile & Run"}
     >
       <div class="relative w-8 h-8 flex items-center justify-center">
@@ -160,6 +215,43 @@ function CompileButton(props) {
             }`}
         >
           <rect x="5" y="5" width="14" height="14" rx="3" ry="3" />
+        </svg>
+      </div>
+    </button>
+  );
+}
+
+function PanelToggle(props) {
+  return (
+    <button
+      onClick={props.onToggle}
+      class={`
+        absolute top-1 z-50 w-6 h-6 bg-gray-800 border border-gray-600
+        text-gray-300 hover:text-white rounded-lg shadow-lg flex items-center
+        justify-center transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+        cursor-pointer
+
+        /* Position Animation: 40% (minus button width & padding) vs left edge */
+        ${props.isCollapsed ? "left-1" : "left-[calc(40%-(--spacing(7)))]"}
+
+        /* Inactivity Slide Animation (only triggers when collapsed) */
+        ${!props.isCollapsed || !props.isIdle ? "translate-x-0 opacity-100" : "-translate-x-24 opacity-0"}
+      `}
+      title={props.isCollapsed ? "Show Editor" : "Hide Editor"}
+    >
+      <div class="relative w-6 h-6 flex items-center justify-center">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class={`absolute w-5 h-5 transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${props.isCollapsed ? "rotate-180" : "rotate-0"
+            }`}
+        >
+          <path d="M18 17l-5-5 5-5M11 17l-5-5 5-5" />
         </svg>
       </div>
     </button>
