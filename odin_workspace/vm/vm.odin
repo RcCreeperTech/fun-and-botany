@@ -233,6 +233,7 @@ Color :: [4]u8
 Label :: distinct u8
 
 // TODO: Parent variants for relevent parameters
+// TODO: Move to sim & make opaque here?
 Param :: enum u8 {
 	State,
 	Thickness,
@@ -241,6 +242,7 @@ Param :: enum u8 {
 	Growth_Rate,
 	Stiffness,
 	Density,
+	Interpolate_Colors,
 }
 
 run :: proc(vm: ^VM, program: Program, user_context: any = nil) -> (err: VM_Error) {

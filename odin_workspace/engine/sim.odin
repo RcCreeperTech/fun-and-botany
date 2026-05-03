@@ -33,12 +33,17 @@ Vec3 :: [3]f32
 
 Handle :: hm.Handle32
 ElementMap :: hm.Static_Handle_Map(1024, Sim_Element, Handle)
+ElementFlag :: enum {
+	interpolate_colors
+}
+ElementFlags :: bit_set[ElementFlag]
 Sim_Element :: struct {
 	// Connnection Info
 	handle:                  Handle,
 	parent, left, right:     Handle,
 	first_child, last_child: Handle,
 	//
+	flags:                   ElementFlags,
 	target_thickness:        f32,
 	target_length:           f32,
 	target_color:            Color,
@@ -94,7 +99,6 @@ sim_init :: proc(self: ^SimState, program: vm.Program) {
 		self.ground = b2.CreateBody(self.physics_world, body_def)
 		_ = b2.CreatePolygonShape(self.ground, shape_def, box)
 	}
-
 
 	self.root_element = sim_element_spawn(self, nil)
 
@@ -188,6 +192,7 @@ sim_element_spawn :: proc(
 		child_elem.target_thickness = parent.target_thickness * 0.8
 		child_elem.target_color = parent.target_color
 		child_elem.color = parent.color
+		child_elem.flags = parent.flags
 	} else {
 		// Root element attaches to the ground
 		parent_body = self.ground
@@ -204,7 +209,9 @@ sim_element_spawn :: proc(
 
 	// Physics setup
 	shape_def := b2.DefaultShapeDef()
-	shape_def.density = WOOD_TISSUE.density // TODO: make this a parameter
+	DENSITY_DECAY_FACTOR :: 0.3
+	// TODO: make this a parameter
+	shape_def.density = WOOD_TISSUE.density * math.pow_f32(1. - DENSITY_DECAY_FACTOR, f32(child_elem.depth))
 	shape_def.filter.categoryBits = u64(Collision_Categories.Element)
 	shape_def.filter.maskBits = u64(Collision_Categories.Ground)
 
@@ -276,6 +283,18 @@ sim_render :: proc(app: ^ApplicationState, self: ^SimState, dt: f32) {
 		}
 		camera_target := (hi + lo) / 2
 		self.camera.target = exp_decay(self.camera.target, camera_target, 5, dt)
+
+		padded_size := (hi - lo) * 1.15
+		padded_size.x, padded_size.y = max(padded_size.x, 0.1), max(padded_size.y, 0.1)
+
+		viewport:= Vec2{f32(app.window_width), f32(app.window_height)} / f32(app.dpr)
+
+		zoom := viewport / padded_size
+
+		target_zoom := min(zoom.x, zoom.y, SIM_PIXELS_PER_METER)
+
+		self.camera.zoom = exp_decay(self.camera.zoom, target_zoom, 5, dt)
+
 	}
 	rg.frame_begin(r)
 
@@ -338,14 +357,9 @@ sim_render :: proc(app: ^ApplicationState, self: ^SimState, dt: f32) {
 			}
 
 
-			rg.draw_wedge(
-				r,
-				prev_position,
-				position,
-				prev.thickness,
-				e.thickness,
-				{prev.color, prev.color, e.color, e.color},
-			)
+			wedge_color: [4]Color = e.color if .interpolate_colors not_in e.flags else {prev.color, prev.color, e.color, e.color}
+
+			rg.draw_wedge(r, prev_position, position, prev.thickness, e.thickness, wedge_color)
 
 			when SIM_DEBUG_RENDERING {
 				rc_draw_circle(&rc, prev.position, 5, color = RED)

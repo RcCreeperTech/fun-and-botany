@@ -256,6 +256,7 @@ map_string_to_vm_param :: proc(name: string) -> vm.Param {
 	case "growth_rate": return .Growth_Rate
 	case "stiffness":   return .Stiffness
 	case "density":     return .Density
+	case "interpolate_colors": return .Interpolate_Colors
 	}
 	return .State // Fallback, SEMA should prevent this
 }

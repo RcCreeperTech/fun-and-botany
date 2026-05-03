@@ -13,12 +13,12 @@ Type_Class :: enum {
 }
 
 Sema_Context :: struct {
-	locals:      map[string]int,
-	local_types: map[string]Type_Class,
-	local_count: int,
-	inside_state_function: bool
+	locals:                map[string]int,
+	local_types:           map[string]Type_Class,
+	local_count:           int,
+	inside_state_function: bool,
+	has_cell_param:        bool,
 }
-
 
 def_has_annotation :: proc(def: ^AST_Top_Level_Def, name: string) -> bool {
 	for a in def.annotation.items { if a.name == name do return true }
@@ -81,7 +81,7 @@ sema_resolve_globals :: proc(self: ^Compiler) {
 			name := func.name.name
 
 			if name not_in self.state_table {
-				sema_error(self, func.span, "Entrypoint must be a state, try adding the '@state' annotation", name)
+				sema_error(self, func.span, "Entrypoint must be a state, try adding the '@state' annotation")
 				continue
 			}
 
@@ -112,7 +112,7 @@ sema_resolve_globals :: proc(self: ^Compiler) {
 			name := func.name.name
 
 			if name not_in self.state_table {
-				sema_error(self, func.span, "Terminal must be a state, try adding the '@state' annotation", name)
+				sema_error(self, func.span, "Terminal must be a state, try adding the '@state' annotation")
 				continue
 			}
 
@@ -152,24 +152,23 @@ sema_check_program :: proc(self: ^Compiler) {
 	for def in self.ast.defs {
 		#partial switch d in def.derived_def {
 		case ^AST_Function_Def:
-			if def_has_annotation(def, "state") {
-				sema_check_function(self, d)
-			}
+			sema_check_function(self, d)
 		}
 	}
 }
 
 sema_check_function :: proc(self: ^Compiler, func: ^AST_Function_Def) {
+	is_cell_param :: proc(param: ^AST_Identifier) -> bool { return param.name == "cell" }
 	ctx := Sema_Context{
 		locals = make(map[string]int, 16, self.allocator),
 		local_types = make(map[string]Type_Class, 16, self.allocator),
 		local_count = 0,
 		inside_state_function = def_has_annotation(func, "state"),
+		has_cell_param = contains(func.params, is_cell_param),
 	}
 	defer delete(ctx.locals)
 	defer delete(ctx.local_types)
 
-	// Register parameters (like 'cell') so they don't trigger "undefined variable"
 	for param in func.params {
 		ctx.locals[param.name] = ctx.local_count
 		ctx.local_count += 1
@@ -192,6 +191,10 @@ sema_check_stmt :: proc(self: ^Compiler, ctx: ^Sema_Context, stmt: ^AST_Stmt) {
 		lhs_type: Type_Class
 		switch target in s.target {
 		case ^AST_Identifier:
+			if target.name == "cell" && ctx.inside_state_function {
+				sema_error(self, target.span, "Illegal assignment: Cannot overwrite the 'cell' parameter inside a state function.")
+			}
+
 			if target.name not_in ctx.locals { // New Variable Declaration
 				ctx.locals[target.name] = ctx.local_count
 				ctx.local_types[target.name] = rhs_type
@@ -202,6 +205,7 @@ sema_check_stmt :: proc(self: ^Compiler, ctx: ^Sema_Context, stmt: ^AST_Stmt) {
 			}
 		case ^AST_Prop_Access_Expr:
 			sema_check_expr(self, ctx, target.entity)
+			validate_property_access(self, ctx, target, target.span, .write)
 			lhs_type = sema_resolve_expr_type(self, ctx, target)
 		}
 
@@ -278,8 +282,7 @@ sema_check_expr :: proc(self: ^Compiler, ctx: ^Sema_Context, expr: ^AST_Expr) {
 		sema_check_expr(self, ctx, e.expr_else)
 	case ^AST_Prop_Access_Expr:
 		sema_check_expr(self, ctx, e.entity)
-		// e.property is an identifier, but it's a field name (e.g., 'growth_rate'),
-		// so we don't validate it against local variables.
+		validate_property_access(self, ctx, e, e.span, .read)
 	case ^AST_Number_Lit, ^AST_Color_Lit, ^AST_Bool_Lit, ^AST_State_Lit:
 		// Literals are inherently valid
 	}
@@ -342,13 +345,16 @@ sema_resolve_expr_type :: proc(self: ^Compiler, ctx: ^Sema_Context, expr: ^AST_E
 		case: return .Unknown
 		}
 	case ^AST_Prop_Access_Expr:
-		target := e.entity.derived_expr.(^AST_Identifier)
+		target, is_ident := e.entity.derived_expr.(^AST_Identifier)
 		if target.name != "cell" do return .Unknown
+
+		if !is_ident || target.name != "cell" do return .Poison
 
 		switch e.property.name {
 		case "thickness", "length", "growth_rate", "stiffness", "density": return .Number
 		case "color": return .Color
 		case "state": return .State
+		case "interpolate_colors": return .Bool
 		case: return .Unknown
 		}
 	case ^AST_Ternary_Expr:
@@ -371,4 +377,28 @@ sema_resolve_expr_type :: proc(self: ^Compiler, ctx: ^Sema_Context, expr: ^AST_E
 	}
 
 	return .Unknown
+}
+
+validate_property_access :: proc(self: ^Compiler, ctx: ^Sema_Context, access: ^AST_Prop_Access_Expr, span: SrcSpan, action: enum{read, write}) {
+	if e, is_ident := access.entity.derived_expr.(^AST_Identifier); is_ident && e.name == "cell" {
+		if !ctx.inside_state_function {
+			action := "modified" if action == .write else "accessed"
+			sema_error(self, span, "Missing '@state' annotation: 'cell' properties can only be %s inside state functions.", action)
+		}
+		if !ctx.has_cell_param {
+			action := "modify" if action == .write else "access"
+			sema_error(self, span, "Missing parameter: State function must have a 'cell' parameter to %s its properties.", action)
+		}
+
+		switch access.property.name {
+		case "state", "thickness", "length", "color", "growth_rate", "stiffness", "density", "interpolate_colors":
+		case:
+			action := "modify" if action == .write else "access"
+			sema_error(self, span, "Unable to %s unknown property %s", action, access.property.name)
+		}
+
+	} else {
+		action := "assignment" if action == .write else "access"
+		sema_error(self, span, "Property %s is only supported on the 'cell' identifier.", action)
+	}
 }
