@@ -11,15 +11,16 @@ import la "core:math/linalg"
 import rg "renderer"
 
 ApplicationState :: struct {
-	cumulative_time:          f64,
-	window_width:             i32,
-	window_height:            i32,
-	dpr:                      f64,
-	ortho_proj:               la.Matrix4f32,
-	r:                        rg.Renderer_State,
-	debug_rc:                 DebugRenderer_Context,
-	ctx:                      runtime.Context,
-	sim:                      SimState,
+	cumulative_time: f64,
+	accumulator:     f32,
+	window_width:    i32,
+	window_height:   i32,
+	dpr:             f64,
+	ortho_proj:      la.Matrix4f32,
+	r:               rg.Renderer_State,
+	debug_rc:        DebugRenderer_Context,
+	ctx:             runtime.Context,
+	sim:             SimState,
 }
 
 g_app_state: ApplicationState
@@ -67,10 +68,18 @@ step :: proc(delta_time: f64) -> (keep_going: bool) {
 		app.cumulative_time = 0
 	}
 
+
 	center := window_center()
 
-	sim_update(&app.sim, f32(delta_time))
-	sim_render(app, &app.sim, f32(delta_time))
+	frame_dt := min(f32(delta_time), 0.25) // Cap max framerate
+	app.accumulator += frame_dt
+	SIM_TIMESTEP :: 1.0 / 60.0
+	for app.accumulator >= SIM_TIMESTEP {
+		sim_update(&app.sim, SIM_TIMESTEP)
+		app.accumulator -= SIM_TIMESTEP
+	}
+
+	sim_render(app, &app.sim, frame_dt)
 
 	debug_renderer_flush(&g_app_state.debug_rc, &g_app_state.r)
 
