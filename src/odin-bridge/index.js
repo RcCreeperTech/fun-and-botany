@@ -58,6 +58,9 @@ export default class OdinBridge {
             canvas.width = actualWidth;
             canvas.height = actualHeight;
             this.exports.window_resize(displayWidth, displayHeight, dpr, this.odin_ctx);
+            // Resize events can interrupt the requestAnimationFrame callback
+            // because css can steal priority for the browser re-paint
+            this.prevTimeStamp = undefined;
           }
         }
       });

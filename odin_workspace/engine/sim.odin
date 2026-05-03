@@ -269,7 +269,7 @@ sim_render :: proc(app: ^ApplicationState, self: ^SimState, dt: f32) {
 	if !self.ready do return
 	r := &app.r
 	{
-		lo, hi: Vec2 = math.INF_F32, -math.INF_F32
+		lo, hi: Vec2
 		it := hm.iterator_make(&self.elements)
 		for e, _ in hm.iterate(&it) {
 			tip_local := Vec2{0, e.length}
