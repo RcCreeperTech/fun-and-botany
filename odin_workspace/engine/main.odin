@@ -21,6 +21,10 @@ ApplicationState :: struct {
 	debug_rc:        DebugRenderer_Context,
 	ctx:             runtime.Context,
 	sim:             SimState,
+	is_pruning:      bool,
+	mouse_down:      bool,
+	cut_start:       Vec2,
+	cut_current:     Vec2,
 }
 
 g_app_state: ApplicationState
@@ -53,8 +57,6 @@ main :: proc() {
 	rc_initialize(&app.debug_rc)
 
 	vm.init_json_encoders()
-
-
 }
 
 @(export)
@@ -125,4 +127,37 @@ load_program_and_restart :: proc(ptr: [^]byte, len: int) {
 
 	sim_destroy(&app.sim)
 	sim_init(&app.sim, program)
+}
+
+@(export)
+toggle_pruning :: proc(active: bool) { g_app_state.is_pruning = active }
+
+@(export)
+mouse_down :: proc(css_x, css_y: f64) {
+	context = g_app_state.ctx
+	if !g_app_state.is_pruning do return
+
+	g_app_state.mouse_down = true
+	world_pos := rg.camera_screen_to_world(g_app_state.sim.camera, {f32(css_x), f32(css_y)})
+	g_app_state.cut_start = world_pos
+	g_app_state.cut_current = world_pos
+}
+
+@(export)
+mouse_move :: proc(css_x, css_y: f64) {
+	context = g_app_state.ctx
+	if !g_app_state.is_pruning do return
+	g_app_state.cut_current = rg.camera_screen_to_world(g_app_state.sim.camera, {f32(css_x), f32(css_y)})
+}
+
+@(export)
+mouse_up :: proc(css_x, css_y: f64) {
+	context = g_app_state.ctx
+	if !g_app_state.is_pruning do return
+
+	g_app_state.mouse_down = false
+	g_app_state.cut_current = rg.camera_screen_to_world(g_app_state.sim.camera, {f32(css_x), f32(css_y)})
+	sim_execute_cut(&g_app_state.sim, g_app_state.cut_start, g_app_state.cut_current)
+	g_app_state.cut_start = 0
+	g_app_state.cut_current = 0
 }

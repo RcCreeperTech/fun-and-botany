@@ -27,40 +27,8 @@ STEM_TISSUE :: TissueMaterial{0.5, 5, 0.675}
 LEAF_TISSUE :: TissueMaterial{0.1, 2, 0.5}
 PETAL_TISSUE :: TissueMaterial{0.01, 1.25, 0.33}
 
-Matrix3 :: la.Matrix3x3f32
-Vec2 :: [2]f32
-Vec3 :: [3]f32
-
 Handle :: hm.Handle32
 ElementMap :: hm.Static_Handle_Map(1024, Sim_Element, Handle)
-ElementFlag :: enum {
-	interpolate_colors
-}
-ElementFlags :: bit_set[ElementFlag]
-Sim_Element :: struct {
-	// Connnection Info
-	handle:                  Handle,
-	parent, left, right:     Handle,
-	first_child, last_child: Handle,
-	//
-	flags:                   ElementFlags,
-	target_thickness:        f32,
-	target_length:           f32,
-	target_color:            Color,
-	thickness:               f32,
-	length:                  f32,
-	color:                   Color,
-	lignen_changed:          bool,
-	lignen:                  f32,
-	growth_rate:             f32,
-	depth:                   u8,
-	vm_entrypoint:           vm.Label,
-	// Physics handles
-	body:                    b2.BodyId,
-	shape:                   b2.ShapeId,
-	joint:                   b2.JointId,
-}
-
 Collision_Categories :: enum u64 {
 	Ground  = 0x00000001,
 	Element = 0x00000002,
@@ -76,9 +44,12 @@ SimState :: struct {
 	_vm:                      vm.VM,
 	program:                  vm.Program,
 	camera:                   rg.Camera,
+	particles:                Particle_System,
 }
 
 sim_init :: proc(self: ^SimState, program: vm.Program) {
+	particle_system_init(&self.particles)
+
 	{ 	// Create the physics world
 		world_def := b2.DefaultWorldDef()
 		world_def.gravity = {0, -SIM_GRAVITY}
@@ -91,6 +62,7 @@ sim_init :: proc(self: ^SimState, program: vm.Program) {
 		box := b2.MakeBox(SIM_GROUND_THICKNESS / 2, SIM_GROUND_THICKNESS / 2)
 		shape_def := b2.DefaultShapeDef()
 		shape_def.filter.categoryBits = u64(Collision_Categories.Ground)
+		shape_def.enableContactEvents = true
 		body_def := b2.DefaultBodyDef()
 		body_def.position = {0, -SIM_GROUND_THICKNESS / 2}
 		body_def.type = .staticBody
@@ -133,14 +105,16 @@ sim_destroy :: proc(self: ^SimState) {
 
 sim_update :: proc(self: ^SimState, delta_time: f32) {
 	if !self.ready do return
+	particle_system_update(&self.particles, delta_time)
 	sim_execute_plant_bytecode(self, delta_time)
 	sim_tick_cells(self, delta_time)
 	b2.World_Step(self.physics_world, f32(delta_time), 4)
+	sim_process_contact_events(self)
 }
 
 sim_tick_cells :: proc(self: ^SimState, dt: f32) {
-	it := hm.iterator_make(&self.elements)
-	for e, _ in hm.iterate(&it) {
+	for it := hm_iter(&self.elements); e, _ in hm.iterate(&it) {
+		if .pruned in e.flags do continue
 		e.growth_rate = exp_decay(e.growth_rate, SIM_END_GROWTH_RATE, SIM_CELL_AGING_RATE, dt)
 		e.thickness = exp_decay(e.thickness, e.target_thickness, e.growth_rate, dt)
 		e.length = exp_decay(e.length, e.target_length, e.growth_rate, dt)
@@ -163,108 +137,42 @@ sim_tick_cells :: proc(self: ^SimState, dt: f32) {
 	}
 }
 
-sim_element_spawn :: proc(
-	self: ^SimState,
-	parent: ^Sim_Element,
-	theta: f32 = 0,
-	mass: f32 = 1,
-	vm_entrypoint: vm.Label = vm.Label(0),
-) -> Handle {
-	parent_body: b2.BodyId
-	parent_anchor, start_pos: Vec2
-	start_rot: b2.Rot
+sim_process_contact_events :: proc(self: ^SimState) {
+	events := b2.World_GetContactEvents(self.physics_world)
+	for event in events.beginEvents[:events.beginCount] {
+		body_a := b2.Shape_GetBody(event.shapeIdA)
+		body_b := b2.Shape_GetBody(event.shapeIdB)
 
-	// Pre-fill fields common to both Root and Child elements
-	child_elem := Sim_Element {
-		length        = 0.01,
-		thickness     = 0.01,
-		growth_rate   = SIM_BASELINE_GROWTH_RATE,
-		vm_entrypoint = vm_entrypoint,
-	}
-
-	// Calculate attachment points and inherited properties
-	if parent != nil {
-		parent_body = parent.body
-		parent_anchor = {0, parent.length}
-		parent_transform := b2.Body_GetTransform(parent.body)
-		start_pos = b2.TransformPoint(parent_transform, parent_anchor)
-		start_rot = b2.MulRot(b2.MakeRot(theta), b2.Body_GetRotation(parent.body))
-
-		child_elem.parent = parent.handle
-		child_elem.right = parent.first_child // link into head of sibling dll
-		child_elem.depth = parent.depth + 1
-		child_elem.target_length = parent.target_length * 0.95
-		child_elem.target_thickness = parent.target_thickness * 0.8
-		child_elem.target_color = parent.target_color
-		child_elem.color = parent.color
-		child_elem.flags = parent.flags
-		child_elem.lignen = parent.lignen
-		child_elem.lignen_changed = true
-	} else {
-		// Root element attaches to the ground
-		parent_body = self.ground
-		parent_anchor = {0, SIM_GROUND_THICKNESS / 2}
-		start_pos = {0, 0}
-		start_rot = b2.MakeRot(theta)
-
-		child_elem.depth = 0
-		child_elem.target_length = 1.0
-		child_elem.target_thickness = 0.4
-		child_elem.target_color = DARKGREEN
-		child_elem.color = DARKGREEN
-		child_elem.lignen = 1.0
-	}
-
-	// Physics setup
-	shape_def := b2.DefaultShapeDef()
-	DENSITY_DECAY_FACTOR :: 0.3
-	// TODO: make this a parameter
-	shape_def.density = WOOD_TISSUE.density * math.pow_f32(1. - DENSITY_DECAY_FACTOR, f32(child_elem.depth))
-	shape_def.filter.categoryBits = u64(Collision_Categories.Element)
-	shape_def.filter.maskBits = u64(Collision_Categories.Ground)
-
-	body_def := b2.DefaultBodyDef()
-	body_def.type = .dynamicBody
-	body_def.position = start_pos
-	body_def.rotation = start_rot
-
-	child_elem.body = b2.CreateBody(self.physics_world, body_def)
-	child_elem.shape = b2.CreateCapsuleShape(child_elem.body, shape_def, {0, {0, 0.01}, 0.01})
-
-	joint_def := b2.DefaultRevoluteJointDef()
-	when BOX2D_DEBUG_DRAW do joint_def.drawSize = 0.08
-	joint_def.bodyIdA = parent_body
-	joint_def.bodyIdB = child_elem.body
-	joint_def.localAnchorA = parent_anchor
-	joint_def.localAnchorB = 0
-	joint_def.targetAngle = theta
-	joint_def.enableSpring = true
-	joint_def.hertz = WOOD_TISSUE.freq // TODO: parameter
-	joint_def.dampingRatio = WOOD_TISSUE.damping // TODO: Parameter
-	joint_def.collideConnected = false
-	child_elem.joint = b2.CreateRevoluteJoint(self.physics_world, joint_def)
-
-	// Add to ECS / Handle Map
-	child := hm.add(&self.elements, child_elem)
-
-	// Link up the tree hierarchy if it's not the root
-	if parent != nil {
-		if first, ok := hm.get(&self.elements, parent.first_child); ok {
-			first.left = child
-			parent.first_child = child
-		} else { 	// parent has no children yet
-			parent.first_child, parent.last_child = child, child
+		// Check if one of the bodies is the ground
+		elem_body: b2.BodyId
+		switch {
+		case body_a == self.ground:
+			elem_body = body_b
+		case body_b == self.ground:
+			elem_body = body_a
+		case: continue
 		}
-	}
 
-	return child
+
+		ud := b2.Body_GetUserData(elem_body)
+		if ud == nil do continue
+
+		handle := transmute(Handle)u32(uintptr(ud))
+		e := hm.get(&self.elements, handle) or_continue
+		if .pruned not_in e.flags do continue
+
+		impact_point := event.manifold.points[0].point
+		sim_spawn_burst(&self.particles, impact_point, e.color, amount = 15)
+
+		sim_element_destroy(self, handle)
+	}
 }
 
 sim_execute_plant_bytecode :: proc(self: ^SimState, dt: f32) {
 	context.logger.lowest_level = .Error
 	defer context.logger.lowest_level = .Debug
-	it := hm.iterator_make(&self.elements)
-	for element, h in hm.iterate(&it) {
+	for it := hm_iter(&self.elements); element, h in hm.iterate(&it) {
+		if .pruned in element.flags do continue
 		log.debugf("Cell %v is in state %v", h, element.vm_entrypoint)
 		err := vm.run(&self._vm, self.program, element)
 		if err != nil {
@@ -278,8 +186,7 @@ sim_render :: proc(app: ^ApplicationState, self: ^SimState, dt: f32) {
 	r := &app.r
 	{
 		lo, hi: Vec2
-		it := hm.iterator_make(&self.elements)
-		for e, _ in hm.iterate(&it) {
+		for it := hm_iter(&self.elements); e, _ in hm.iterate(&it) {
 			tip_local := Vec2{0, e.length}
 			transform := b2.Body_GetTransform(e.body)
 			position := b2.TransformPoint(transform, tip_local)
@@ -312,10 +219,18 @@ sim_render :: proc(app: ^ApplicationState, self: ^SimState, dt: f32) {
 		rg.Pipeline_Basic{projection = app.ortho_proj},
 	)
 	if rg.camera_mode(r, self.camera) {
-		draw_plant(app, self, self.root_element)
+		for it := hm_iter(&self.elements); e, h in hm.iterate(&it) {
+			if e.parent == {} do draw_plant(app, self, h)
+		}
 
 		extent: Vec2 = SIM_GROUND_THICKNESS
 		rg.draw_rect(r, 0 - {extent.x * 0.5, extent.y}, extent, color = {3, 58, 34, 255})
+
+		particle_system_render(r, &self.particles)
+
+		if app.is_pruning && app.mouse_down && app.cut_start != app.cut_current {
+			rg.draw_line(r, app.cut_start, app.cut_current, 0.02, color = {255, 50, 50, 255})
+		}
 	}
 	rg.pass_end(r)
 
@@ -350,7 +265,6 @@ sim_render :: proc(app: ^ApplicationState, self: ^SimState, dt: f32) {
 
 
 			prev := prev
-			prev_position: Vec2
 			// Inject a dummy prev for the origin segment
 			if prev == nil {
 				dummy := Sim_Element {
@@ -358,16 +272,11 @@ sim_render :: proc(app: ^ApplicationState, self: ^SimState, dt: f32) {
 					color     = e.color,
 				}
 				prev = &dummy
-			} else {
-				prev_tip_local := Vec2{0, prev.length}
-				prev_transform := b2.Body_GetTransform(prev.body)
-				prev_position = b2.TransformPoint(prev_transform, prev_tip_local)
 			}
-
 
 			wedge_color: [4]Color = e.color if .interpolate_colors not_in e.flags else {prev.color, prev.color, e.color, e.color}
 
-			rg.draw_wedge(r, prev_position, position, prev.thickness, e.thickness, wedge_color)
+			rg.draw_wedge(r, transform.p, position, prev.thickness, e.thickness, wedge_color)
 
 			when SIM_DEBUG_RENDERING {
 				rc_draw_circle(&rc, prev.position, 5, color = RED)
@@ -546,4 +455,115 @@ sample_tissue_params :: proc(lignen: f32) -> TissueMaterial {
 		damping = math.lerp(mat_a.damping, mat_b.damping, t),
 	}
 
+}
+
+
+sim_execute_cut :: proc(self: ^SimState, p1, p2: Vec2) {
+	CutHit :: struct { handle: Handle, t: f32 }
+	hits: [dynamic]CutHit
+	defer delete(hits)
+
+	for it := hm_iter(&self.elements); e, h in hm.iterate(&it) {
+		transform := b2.Body_GetTransform(e.body)
+		p3 := transform.p
+		p4 := b2.TransformPoint(transform, {0, e.length})
+
+		if _, s, ok := segment_intersect(p1, p2, p3, p4); ok && s > 0.01 && s < 0.99 {
+			safe_s := clamp(s, 0.05, 0.95)
+			append(&hits, CutHit{h, s})
+		}
+	}
+
+	for hit in hits do bisect_element(self, hit.handle, hit.t)
+}
+
+bisect_element :: proc(self: ^SimState, handle: Handle, t: f32) -> bool {
+	e := hm.get(&self.elements, handle) or_return
+	b2.Body_IsValid(e.body) or_return
+
+	cut_length := e.length * t
+	rem_length := e.length - cut_length
+	transform := b2.Body_GetTransform(e.body)
+	cut_world_pos := b2.TransformPoint(transform, {0, cut_length})
+
+	if s_handle, s, ok := sim_element_clone(self, handle); ok {
+		s.length = rem_length
+		s.target_length = rem_length
+
+		shape_def := make_element_shape_def(b2.Shape_GetDensity(e.shape), true)
+		body_def := make_element_body_def(
+			cut_world_pos, transform.q,
+			b2.Body_GetLinearVelocity(e.body),
+			b2.Body_GetAngularVelocity(e.body),
+		)
+		s.body = b2.CreateBody(self.physics_world, body_def)
+		s.shape = b2.CreateCapsuleShape(s.body, shape_def, {0, {0, rem_length}, s.thickness})
+		b2.Body_SetUserData(s.body, rawptr(uintptr(transmute(u32)s_handle)))
+
+		s.first_child = e.first_child
+		s.last_child = e.last_child
+
+		subtree_add_flags(self, s_handle, {.pruned})
+
+		child_it := s.first_child
+		for child_it != {} {
+			child := hm.get(&self.elements, child_it) or_break
+
+			next_it := child.right
+
+			child.parent = s_handle
+			if b2.Joint_IsValid(child.joint) do b2.DestroyJoint(child.joint)
+
+			c_rot, s_rot := b2.Body_GetRotation(child.body), b2.Body_GetRotation(s.body)
+			theta := math.atan2(c_rot.s, c_rot.c) - math.atan2(s_rot.s, s_rot.c)
+
+			tissue := sample_tissue_params(child.lignen)
+			j_def := make_element_joint_def(s.body, child.body, {0, rem_length}, theta, tissue)
+			child.joint = b2.CreateRevoluteJoint(self.physics_world, j_def)
+
+			child_it = next_it
+		}
+	} else {
+
+		subtree_add_flags(self, handle, {.pruned})
+		e.flags -= {.pruned}
+		child_it := e.first_child
+		for child_it != {} {
+			child := hm.get(&self.elements, child_it) or_break
+			next_it := child.right
+
+			child.parent = {}
+			child.left = {}
+			child.right = {}
+
+			if b2.Joint_IsValid(child.joint) {
+				b2.DestroyJoint(child.joint)
+				child.joint = {}
+			}
+
+			child_it = next_it
+		}
+	}
+
+	e.vm_entrypoint = 0 // Reset the trimmed bud to the initial state
+	e.first_child = {}
+	e.last_child = {}
+	e.length = cut_length
+	e.target_length = cut_length
+	b2.Shape_SetCapsule(e.shape, b2.Capsule{0, {0, cut_length}, e.thickness})
+	b2.Body_ApplyMassFromShapes(e.body)
+
+	return true
+
+	subtree_add_flags :: proc(self: ^SimState, elem: Handle, add_flags: ElementFlags) -> bool {
+		e := hm.get(&self.elements, elem) or_return
+		e.flags += add_flags
+		it := e.first_child
+		for it != {} {
+			child := hm.get(&self.elements, it) or_break
+			subtree_add_flags(self, it, add_flags)
+			it = child.right
+		}
+		return true
+	}
 }

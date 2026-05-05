@@ -1,7 +1,12 @@
 package engine
 
 import "base:intrinsics"
+import la "core:math/linalg"
 import "core:math"
+
+Matrix3 :: la.Matrix3x3f32
+Vec2 :: [2]f32
+Vec3 :: [3]f32
 
 @(private)
 IS_FLOAT :: intrinsics.type_is_float
@@ -43,4 +48,19 @@ cmplx_normalize :: proc(z: complex64) -> complex64 {
 	if l2 <= 0 do return z
 	inv_len := 1 / math.sqrt(l2)
 	return complex(real(z) * inv_len, imag(z) * inv_len)
+}
+
+segment_intersect :: proc(p1, p2, p3, p4: Vec2) -> (pt: Vec2, element_t: f32, hit: bool) {
+	v1, v2 := p2 - p1, p4 - p3
+	denom := la.cross(v1, v2)
+	if math.abs(denom) < 1e-6 do return {}, 0, false
+
+	u := p3 - p1
+	t := la.cross(u, v2) / denom
+	s := la.cross(u, v1) / denom
+
+	if t >= 0 && t <= 1 && s >= 0 && s <= 1 {
+		return p1 + v1 * t, s, true
+	}
+	return {}, 0, false
 }

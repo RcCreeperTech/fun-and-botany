@@ -65,6 +65,27 @@ export default class OdinBridge {
         }
       });
       this.resizeObserver.observe(canvas); // TODO: Cleanup
+
+      canvas.addEventListener("pointerdown", (e) => {
+        if (this.exports.mouse_down) {
+          const rect = canvas.getBoundingClientRect();
+          this.exports.mouse_down(e.clientX - rect.left, e.clientY - rect.top, this.odin_ctx);
+        }
+      });
+
+      canvas.addEventListener("pointermove", (e) => {
+        if (this.exports.mouse_move) {
+          const rect = canvas.getBoundingClientRect();
+          this.exports.mouse_move(e.clientX - rect.left, e.clientY - rect.top, this.odin_ctx);
+        }
+      });
+
+      canvas.addEventListener("pointerup", (e) => {
+        if (this.exports.mouse_up) {
+          const rect = canvas.getBoundingClientRect();
+          this.exports.mouse_up(e.clientX - rect.left, e.clientY - rect.top, this.odin_ctx);
+        }
+      });
     }
 
     document.addEventListener("visibilitychange", () => {
@@ -78,8 +99,6 @@ export default class OdinBridge {
 
     this.initialized = true;
   }
-
-
 
   get simulationParameters() {
     let result = [];
@@ -181,4 +200,9 @@ export default class OdinBridge {
     this.exports.ffi_free_buffer(ptr, this.odin_ctx);
   }
 
+  togglePruning(isActive) {
+    if (this.exports.toggle_pruning) {
+      this.exports.toggle_pruning(isActive, this.odin_ctx);
+    }
+  }
 }
