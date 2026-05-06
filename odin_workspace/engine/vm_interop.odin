@@ -11,7 +11,9 @@ vm_interop_vtable := vm.UsrVtable {
 
 vm_spawn_element :: proc(user_context: any, theta: f32, mass: f32, entrypoint: vm.Label) {
 	element := user_context.(^Sim_Element)
-	sim_element_spawn(&g_app_state.sim, element, theta, mass, entrypoint)
+	if _, ok := sim_element_spawn(&g_app_state.sim, element, theta, mass, entrypoint); !ok {
+		element.vm_entrypoint = 1 // Set it to the terminal label
+	}
 }
 
 vm_get_entrypoint :: proc(user_context: any) -> (vm.Label) {

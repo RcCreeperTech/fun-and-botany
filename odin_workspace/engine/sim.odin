@@ -22,10 +22,10 @@ SIM_GRAVITY :: 1.6
 TissueMaterial :: struct {
 	density, freq, damping: f32,
 }
-WOOD_TISSUE :: TissueMaterial{7, 28, 1}
-STEM_TISSUE :: TissueMaterial{0.5, 5, 0.675}
-LEAF_TISSUE :: TissueMaterial{0.1, 2, 0.5}
-PETAL_TISSUE :: TissueMaterial{0.01, 1.25, 0.33}
+WOOD_TISSUE :: TissueMaterial{7, 20, 1}
+STEM_TISSUE :: TissueMaterial{0.9, 10, 1}
+LEAF_TISSUE :: TissueMaterial{0.8, 5, 1}
+PETAL_TISSUE :: TissueMaterial{0.1, 5, 1}
 
 Handle :: hm.Handle32
 ElementMap :: hm.Static_Handle_Map(1024, Sim_Element, Handle)
@@ -122,9 +122,18 @@ sim_tick_cells :: proc(self: ^SimState, dt: f32) {
 
 		tissue := sample_tissue_params(e.lignen)
 		if e.lignen_changed {
+			b2.Body_SetAngularDamping(e.body, tissue.damping)
+			b2.Body_SetLinearDamping(e.body, tissue.damping)
 			b2.Joint_SetConstraintTuning(e.joint, tissue.freq, tissue.damping)
 			b2.Shape_SetDensity(e.shape, tissue.density, true)
 			e.lignen_changed = false
+
+			if e.lignen < 0.01 {
+				b2.RevoluteJoint_EnableSpring(e.joint, false)
+			} else {
+				b2.RevoluteJoint_EnableSpring(e.joint, true)
+				b2.Joint_SetConstraintTuning(e.joint, tissue.freq, tissue.damping)
+			}
 		}
 
 		capsule := b2.Capsule{0, {0, e.length}, e.thickness}
@@ -518,7 +527,8 @@ bisect_element :: proc(self: ^SimState, handle: Handle, t: f32) -> bool {
 			theta := math.atan2(c_rot.s, c_rot.c) - math.atan2(s_rot.s, s_rot.c)
 
 			tissue := sample_tissue_params(child.lignen)
-			j_def := make_element_joint_def(s.body, child.body, {0, rem_length}, theta, tissue)
+			spring := child.lignen != 0
+			j_def := make_element_joint_def(s.body, child.body, {0, rem_length}, theta, tissue, spring)
 			child.joint = b2.CreateRevoluteJoint(self.physics_world, j_def)
 
 			child_it = next_it

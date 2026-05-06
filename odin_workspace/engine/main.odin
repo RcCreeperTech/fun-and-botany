@@ -39,7 +39,6 @@ main :: proc() {
 		})
 
 	app := &g_app_state
-	app.ctx = context
 
 	if !wgl.CreateCurrentContextById(
 		"gl-canvas",
@@ -57,6 +56,8 @@ main :: proc() {
 	rc_initialize(&app.debug_rc)
 
 	vm.init_json_encoders()
+
+	app.ctx = context
 }
 
 @(export)

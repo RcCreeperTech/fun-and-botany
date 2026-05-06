@@ -1,12 +1,13 @@
 import { createSignal, onMount, onCleanup, createEffect } from "solid-js";
 import { useSimulationContext } from "./context/SimulationContext";
 import CodeEditor from "./components/CodeEditor";
+import { willow, candy, palm, steven, twister } from "./Presets"
 
 export default function App() {
   let canvasRef;
   const { bridge, isReady } = useSimulationContext();
   let compilerWorker;
-  const [sourceCode, setSourceCode] = createSignal("// Write your procedural rules here\n");
+  const [sourceCode, setSourceCode] = createSignal(twister);
   const [tokens, setTokens] = createSignal(null);
   const [diagnostics, setDiagnostics] = createSignal([]);
   const hasErrors = () => diagnostics().length > 0;
@@ -88,6 +89,7 @@ export default function App() {
       compilerWorker.postMessage({ type: 'COMPILE' });
     }
   }
+
 
   return (
     <>

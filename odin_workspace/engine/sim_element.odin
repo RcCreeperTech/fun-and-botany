@@ -97,11 +97,14 @@ sim_element_spawn :: proc(
 
 	shape_def := make_element_shape_def(density)
 	body_def := make_element_body_def(start_pos, start_rot)
+	body_def.angularDamping = tissue.damping
+	body_def.linearDamping = tissue.damping
 
 	elem.body = b2.CreateBody(self.physics_world, body_def)
 	elem.shape = b2.CreateCapsuleShape(elem.body, shape_def, {0, {0, 0.01}, 0.01})
 
-	joint_def := make_element_joint_def(parent_body, elem.body, parent_anchor, theta, tissue)
+	spring := elem.lignen != 0
+	joint_def := make_element_joint_def(parent_body, elem.body, parent_anchor, theta, tissue, spring)
 	elem.joint = b2.CreateRevoluteJoint(self.physics_world, joint_def)
 
 	elem_handle := hm.add(&self.elements, elem)
@@ -224,6 +227,7 @@ make_element_joint_def :: proc(
 	anchor_a: Vec2,
 	theta: f32,
 	tissue: TissueMaterial,
+	spring := false,
 ) -> b2.RevoluteJointDef {
 	def := b2.DefaultRevoluteJointDef()
 	when BOX2D_DEBUG_DRAW do def.drawSize = 0.08
@@ -233,12 +237,11 @@ make_element_joint_def :: proc(
 	def.localAnchorA = anchor_a
 	def.localAnchorB = 0
 	def.targetAngle = theta
-
-	def.enableSpring = true
-	def.collideConnected = false
-
+	def.enableSpring = spring
 	def.hertz = tissue.freq
 	def.dampingRatio = tissue.damping
+	def.collideConnected = false
+
 
 	return def
 }
