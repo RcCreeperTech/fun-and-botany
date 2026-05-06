@@ -1,17 +1,20 @@
 import { createSignal, onMount, onCleanup, createEffect } from "solid-js";
 import { useSimulationContext } from "./context/SimulationContext";
 import CodeEditor from "./components/CodeEditor";
-import { willow, candy, palm, steven, twister } from "./Presets";
+import { presets } from "./Presets";
 import ShearsToggle from "./components/ShearsToggle";
 import PanelToggle from "./components/PanelToggle";
 import CompileButton from "./components/CompileButton";
 import Toast from "./components/Toast";
+import Selector from "./components/Selector";
+
+const initialExample = "twister";
 
 export default function App() {
   let canvasRef;
   const { bridge, isReady } = useSimulationContext();
   let compilerWorker;
-  const [sourceCode, setSourceCode] = createSignal(twister);
+  const [sourceCode, setSourceCode] = createSignal(presets[initialExample]);
   const [tokens, setTokens] = createSignal(null);
   const [diagnostics, setDiagnostics] = createSignal([]);
   const hasErrors = () => diagnostics().length > 0;
@@ -126,9 +129,17 @@ export default function App() {
             `}
         >
           <Toast setRef={(api) => (toastApi = api)} />
-          <div class={`w-full h-8 bg-surface-raised`}></div>
+          <div class={`w-full bg-surface-raised`}>
+            <Selector
+              initialValue={initialExample}
+              onSelect={(payload) => {
+                setSourceCode(payload);
+              }}
+              items={presets}
+            />
+          </div>
           <CodeEditor
-            initialCode={sourceCode()}
+            value={sourceCode()}
             onDocChange={handleDocChange}
             tokens={tokens()}
             diagnostics={diagnostics()}

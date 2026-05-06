@@ -1,6 +1,6 @@
-export const willow = `
+const willow = `
 def ANGLE = 0.37
-def GROW = 0.05
+def GROW = 0.15
 def RHISOME = #374F3CFF
 def BARK1 = #614428FF
 def BARK2 = #472D14FF
@@ -17,7 +17,7 @@ def Node(cell):
         return
     end
 
-    if cell.depth > 6:
+    if cell.depth > 8:
         if $Rand < 0.99:
             $Spawn(0, :Streamer)
             cell.state = :Vine
@@ -88,10 +88,6 @@ end
 
 @state
 def Streamer(cell):
-    if cell.depth > 14:
-        return
-    end
-
     if cell.growth_rate >= GROW:
         return
     end
@@ -103,9 +99,9 @@ def Streamer(cell):
     end
     cell.state = :Vine
 end
-
   `;
-export const candy = `
+
+const candy = `
 def ANGLE = 0.35
 def GROW = 0.05
 def CANDY_COLOR = #FF67E2FF
@@ -144,7 +140,7 @@ def red_candy(cell):
     cell.color = CANDY_COLOR
 end
   `;
-export const palm = `
+const palm = `
 def ANGLE = 0.35
 def GROW = 0.05
 def TAU = 6.28
@@ -217,7 +213,7 @@ def Bark(cell):
 end
   `;
 
-export const steven = `
+const steven = `
 def ANGLE = 0.37
 def GROW = 0.05
 def RHISOME = #276E37FF
@@ -297,7 +293,7 @@ def Leaf2(cell):
 end
 `;
 
-export const twister = `
+const twister = `
 def ANGLE = 0.57
 def DIMINISH = 0.055
 def GROW = 0.15
@@ -374,3 +370,11 @@ def Done(cell):
 
 end
 `;
+
+export const presets = {
+  willow: willow,
+  candy: candy,
+  palm: palm,
+  steven: steven,
+  twister: twister,
+};

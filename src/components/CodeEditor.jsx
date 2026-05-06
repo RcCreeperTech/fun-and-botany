@@ -1,9 +1,15 @@
 import { onMount, onCleanup, createEffect } from "solid-js";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { defaultKeymap, indentWithTab, history, historyKeymap, redo } from "@codemirror/commands";
-import { closeBrackets } from "@codemirror/autocomplete"
-import { indentUnit, foldGutter } from "@codemirror/language"
+import {
+  defaultKeymap,
+  indentWithTab,
+  history,
+  historyKeymap,
+  redo,
+} from "@codemirror/commands";
+import { closeBrackets } from "@codemirror/autocomplete";
+import { indentUnit, foldGutter } from "@codemirror/language";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { appTheme } from "./editorTheme";
 import { pilLanguage, updateSemanticTokens } from "./pilLanguage";
@@ -37,7 +43,7 @@ export default function CodeEditor(props) {
             edits.push({
               editStart: fromA,
               editLen: toA - fromA,
-              text: inserted.toString()
+              text: inserted.toString(),
             });
           });
 
@@ -50,7 +56,7 @@ export default function CodeEditor(props) {
     ];
 
     const state = EditorState.create({
-      doc: props.initialCode || "// Write your plant growth procedural rules here\n",
+      doc: props.value || "// Write your plant growth procedural rules here\n",
       extensions,
     });
 
@@ -61,17 +67,35 @@ export default function CodeEditor(props) {
   });
 
   createEffect(() => {
+    const externalValue = props.value;
+
+    if (view && externalValue !== undefined) {
+      const internalValue = view.state.doc.toString();
+
+      if (externalValue !== internalValue) {
+        view.dispatch({
+          changes: {
+            from: 0,
+            to: view.state.doc.length,
+            insert: externalValue,
+          },
+        });
+      }
+    }
+  });
+
+  createEffect(() => {
     if (view && props.tokens) {
       view.dispatch({
-        effects: updateSemanticTokens.of(props.tokens)
+        effects: updateSemanticTokens.of(props.tokens),
       });
     }
-  })
+  });
 
   createEffect(() => {
     if (view && props.diagnostics) {
       // Map to CM6 specific format
-      const cmDiagnostics = props.diagnostics.map(err => ({
+      const cmDiagnostics = props.diagnostics.map((err) => ({
         from: err.offset,
         to: err.offset + err.length,
         severity: err.severity, // "error", "warning", or "info"

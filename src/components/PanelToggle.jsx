@@ -3,7 +3,7 @@ export default function PanelToggle(props) {
     <button
       onClick={props.onToggle}
       class={`
-        absolute top-1 z-50 w-6 h-6 bg-gray-800 border border-gray-600
+        absolute top-1.5 z-50 w-6 h-6 bg-gray-800 border border-gray-600
         text-gray-300 hover:text-white rounded-lg shadow-lg flex items-center
         justify-center transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
         cursor-pointer
