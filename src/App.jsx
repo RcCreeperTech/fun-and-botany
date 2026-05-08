@@ -1,4 +1,10 @@
-import { createSignal, onMount, onCleanup, createEffect } from "solid-js";
+import {
+  createSignal,
+  onMount,
+  onCleanup,
+  createEffect,
+  untrack,
+} from "solid-js";
 import { useSimulationContext } from "./context/SimulationContext";
 import CodeEditor from "./components/CodeEditor";
 import { presets } from "./Presets";
@@ -22,6 +28,10 @@ export default function App() {
   const [isIdle, setIsIdle] = createSignal(false);
   let idleTimeoutId;
 
+  const presetKeys = Object.keys(presets);
+  const [activePresetKey, setActivePresetKey] = createSignal(initialExample);
+  const [isDemoMode, setIsDemoMode] = createSignal(false);
+
   function wakeUpUI() {
     setIsIdle(false);
     clearTimeout(idleTimeoutId);
@@ -36,6 +46,26 @@ export default function App() {
   // Re-evaluate the timer whenever the user explicitly clicks the toggle button
   createEffect(() => {
     wakeUpUI();
+  });
+
+  createEffect(() => {
+    if (!isDemoMode()) return;
+
+    const advanceDemo = () => {
+      untrack(() => {
+        const currentIndex = presetKeys.indexOf(activePresetKey());
+        const nextIndex = (currentIndex + 1) % presetKeys.length;
+        const nextKey = presetKeys[nextIndex];
+
+        setActivePresetKey(nextKey);
+        setSourceCode(presets[nextKey]);
+      });
+    };
+
+    advanceDemo();
+    const interval = setInterval(() => advanceDemo(), 1000 * 45); // Every 45 seconds
+
+    onCleanup(() => clearInterval(interval));
   });
 
   onMount(() => {
@@ -80,12 +110,20 @@ export default function App() {
     if (compilerWorker) compilerWorker.terminate();
   });
 
-  function handleDocChange(edit) {
+  function handleDocChange(edit, isUserEdit) {
+    if (isUserEdit) {
+      setIsDemoMode(false);
+      setActivePresetKey(null);
+    }
     if (compilerWorker) {
       compilerWorker.postMessage({
         type: "SOURCE_EDIT",
         payload: edit,
       });
+
+      if (isDemoMode() && !isUserEdit) {
+        compilerWorker.postMessage({ type: "COMPILE" });
+      }
     }
   }
 
@@ -131,12 +169,24 @@ export default function App() {
           <Toast setRef={(api) => (toastApi = api)} />
           <div class={`w-full bg-surface-raised`}>
             <Selector
-              initialValue={initialExample}
-              onSelect={(payload) => {
+              value={activePresetKey()}
+              onSelect={(key, payload) => {
+                setIsIdle(false);
+                setActivePresetKey(key);
                 setSourceCode(payload);
               }}
               items={presets}
             />
+            <button
+              onClick={() => setIsDemoMode(!isDemoMode())}
+              class={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md transition-colors ${
+                isDemoMode()
+                  ? "bg-warning text-on-accent animate-pulse"
+                  : "bg-surface text-text border border-border hover:bg-surface-raised"
+              }`}
+            >
+              {isDemoMode() ? "Demo Active" : "Start Demo"}
+            </button>
           </div>
           <CodeEditor
             value={sourceCode()}

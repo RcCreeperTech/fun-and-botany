@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect } from "solid-js";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -37,6 +37,10 @@ export default function CodeEditor(props) {
       // Listen for document changes and bubble them up to the main thread state
       EditorView.updateListener.of((update) => {
         if (update.docChanged && props.onDocChange) {
+          const isUserEdit = update.transactions.some(
+            (tr) => tr.annotation(Transaction.userEvent) !== undefined,
+          );
+
           const edits = [];
 
           update.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
@@ -50,7 +54,7 @@ export default function CodeEditor(props) {
           // Reverse the array so bottom-most edits process first
           edits.reverse();
 
-          props.onDocChange(edits);
+          props.onDocChange(edits, isUserEdit);
         }
       }),
     ];

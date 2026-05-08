@@ -5,10 +5,6 @@ export default function Selector(props) {
 
   const keys = () => Object.keys(props.items || {});
 
-  const [selectedKey, setSelectedKey] = createSignal(
-    props.initialValue || (keys().length > 0 ? keys()[0] : null),
-  );
-
   let containerRef;
 
   onMount(() => {
@@ -24,10 +20,10 @@ export default function Selector(props) {
   });
 
   function handleSelect(key) {
-    setSelectedKey(key);
     setIsOpen(false);
     if (props.onSelect) {
-      props.onSelect(props.items[key]);
+      console.log("Triggering", key);
+      props.onSelect(key, props.items[key]);
     }
   }
 
@@ -41,7 +37,7 @@ export default function Selector(props) {
           font-medium transition-colors border rounded-md shadow-sm bg-surface
           text-text border-border hover:bg-surface-raised`}
       >
-        <span class="truncate">{selectedKey() || "Select an option..."}</span>
+        <span class="truncate">{props.value || "Select an option..."}</span>
 
         <svg
           class={`w-4 h-4 ml-2 transition-transform duration-200 text-text-subtle ${
@@ -79,7 +75,7 @@ export default function Selector(props) {
                 onClick={() => handleSelect(key)}
                 class={`block w-full px-4 py-2 text-left text-sm transition-colors
                   ${
-                    selectedKey() === key
+                    props.value === key
                       ? "bg-accent-subtle text-accent-fg font-medium"
                       : "text-text hover:bg-surface-raised"
                   }

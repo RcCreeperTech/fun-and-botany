@@ -103,7 +103,7 @@ end
 
 const candy = `
 def ANGLE = 0.35
-def GROW = 0.05
+def GROW = 0.15
 def CANDY_COLOR = #FF67E2FF
 
 @(entrypoint, state)
@@ -142,7 +142,7 @@ end
   `;
 const palm = `
 def ANGLE = 0.35
-def GROW = 0.05
+def GROW = 0.15
 def TAU = 6.28
 
 @(entrypoint, state)
@@ -215,7 +215,7 @@ end
 
 const steven = `
 def ANGLE = 0.37
-def GROW = 0.05
+def GROW = 0.15
 def RHISOME = #276E37FF
 def BARK1 = #9C6E43FF
 def BARK2 = #85582FFF
